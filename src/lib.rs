@@ -13,3 +13,4 @@
 extern crate vm_memory;
 
 pub mod device;
+pub mod device_manager;
