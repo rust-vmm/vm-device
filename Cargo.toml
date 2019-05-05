@@ -1,8 +1,8 @@
 [package]
 name = "vm-device"
 version = "0.1.0"
-authors = ["Samuel Ortiz <sameo@linux.intel.com>"]
+authors = ["Jing Liu <jing2.liu@linux.intel.com>"]
 repository = "https://github.com/rust-vmm/vm-device"
-license = "Apache-2.0"
+license = "Apache-2.0 OR BSD-3-Clause"
 
 [dependencies]
