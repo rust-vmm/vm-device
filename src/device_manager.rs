@@ -17,7 +17,7 @@ use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 use std::result;
 use std::sync::Arc;
-use vm_memory::{GuestAddress, GuestUsize};
+use vm_memory::{Address, GuestAddress, GuestUsize};
 
 /// Guest physical address and size pair to describe a range.
 #[derive(Eq, Debug, Copy, Clone)]
@@ -236,6 +236,70 @@ impl DeviceManager {
             self.unregister_resources(&descriptor.resources);
             // Free the resources
             self.free_io_resources(&descriptor.resources);
+            Ok(())
+        } else {
+            Err(Error::NonExist)
+        }
+    }
+
+    fn first_before(
+        &self,
+        addr: GuestAddress,
+        io_type: IoType,
+    ) -> Option<(Range, Arc<dyn Device>)> {
+        match io_type {
+            IoType::Pio => {
+                for (range, dev) in self.pio_bus.iter().rev() {
+                    if range.0 <= addr {
+                        return Some((*range, dev.clone()));
+                    }
+                }
+                None
+            }
+            IoType::Mmio => {
+                for (range, dev) in self.mmio_bus.iter().rev() {
+                    if range.0 <= addr {
+                        return Some((*range, dev.clone()));
+                    }
+                }
+                None
+            }
+            IoType::PhysicalMmio => None,
+        }
+    }
+
+    /// Return the Device mapped the address.
+    fn get_device(&self, addr: GuestAddress, io_type: IoType) -> Option<Arc<dyn Device>> {
+        if let Some((Range(start, len), dev)) = self.first_before(addr, io_type) {
+            if (addr.raw_value() - start.raw_value()) < len {
+                return Some(dev);
+            }
+        }
+        None
+    }
+
+    /// A helper function handling PIO/MMIO read commands during VM exit.
+    ///
+    /// Figure out the device according to `addr` and hand over the handling to device
+    /// specific read function.
+    /// Return error if failed to get the device.
+    pub fn read(&self, addr: GuestAddress, data: &mut [u8], io_type: IoType) -> Result<()> {
+        if let Some(dev) = self.get_device(addr, io_type) {
+            dev.read(addr, data, io_type);
+            Ok(())
+        } else {
+            Err(Error::NonExist)
+        }
+    }
+
+    /// A helper function handling PIO/MMIO write commands during VM exit.
+    ///
+    /// Figure out the device according to `addr` and hand over the handling to device
+    /// specific write function.
+    /// Return error if failed to get the device.
+    pub fn write(&self, addr: GuestAddress, data: &[u8], io_type: IoType) -> Result<()> {
+        if let Some(dev) = self.get_device(addr, io_type) {
+            dev.write(addr, data, io_type);
             Ok(())
         } else {
             Err(Error::NonExist)
