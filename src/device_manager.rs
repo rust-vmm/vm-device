@@ -375,3 +375,86 @@ impl DeviceManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::device::*;
+    use crate::device_manager::*;
+    use std::string::String;
+    use std::sync::Mutex;
+
+    #[test]
+    fn test_dev_init() -> Result<()> {
+        pub struct BusDevice {
+            pub config_address: Mutex<u32>,
+            pub name: String,
+        }
+        impl Device for BusDevice {
+            /// Get the device name.
+            fn name(&self) -> String {
+                self.name.clone()
+            }
+            /// Read operation.
+            fn read(&self, _addr: GuestAddress, data: &mut [u8], _io_type: IoType) {
+                if data.len() > 4 {
+                    for d in data {
+                        *d = 0xff;
+                    }
+                    return;
+                }
+                for (idx, iter) in data.iter_mut().enumerate() {
+                    let config = self.config_address.lock().expect("failed to acquire lock");
+                    *iter = (*config >> (idx * 8) & 0xff) as u8;
+                }
+            }
+            /// Write operation.
+            fn write(&self, _addr: GuestAddress, data: &[u8], _io_type: IoType) {
+                let mut config = self.config_address.lock().expect("failed to acquire lock");
+                *config = u32::from(data[0]) & 0xff;
+            }
+            /// Set the allocated resource to device.
+            ///
+            /// This will be called by DeviceManager::register_device() to set
+            /// the allocated resource from the vm_allocator back to device.
+            fn set_resources(&self, _res: &[IoResource], _irq: Option<IrqResource>) {}
+        }
+        impl BusDevice {
+            pub fn new(name: String) -> Self {
+                BusDevice {
+                    name,
+                    config_address: Mutex::new(0x1000),
+                }
+            }
+            pub fn get_resource(&self) -> Vec<IoResource> {
+                let mut req_vec = Vec::new();
+                let res = IoResource::new(Some(GuestAddress(0xcf8)), 8 as GuestUsize, IoType::Pio);
+
+                req_vec.push(res);
+                req_vec
+            }
+        }
+
+        let sys_res = SystemAllocator::new(
+            Some(GuestAddress(0x100)),
+            Some(0x10000),
+            GuestAddress(0x1000_0000),
+            0x1000_0000,
+            5,
+            15,
+            1,
+        )
+        .unwrap();
+        let mut dev_mgr = DeviceManager::new(sys_res.clone());
+        let dummy_bus = BusDevice::new("dummy-bus".to_string());
+        let mut res_req = dummy_bus.get_resource();
+
+        let id = dev_mgr.register_device(
+            Arc::new(dummy_bus),
+            None,
+            &mut res_req,
+            Some(IrqResource(None)),
+        )?;
+        assert_eq!(id, 1);
+        Ok(())
+    }
+}
