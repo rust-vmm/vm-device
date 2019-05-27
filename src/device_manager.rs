@@ -52,6 +52,10 @@ pub enum Error {
     NonExist,
     /// Io resource allocation failed at some index.
     IoResourceAllocate(usize, AllocatorError),
+    /// IRQ allocated failed.
+    IrqAllocate(AllocatorError),
+    /// Instance id allocation failed.
+    InstanceIdAllocate(AllocatorError),
 }
 
 /// Simplify the `Result` type.
@@ -61,8 +65,8 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct DeviceManager {
     /// System allocator reference.
     resource: SystemAllocator,
-    /// Devices information mapped by name.
-    devices: HashMap<String, DeviceDescriptor>,
+    /// Devices information mapped by instance id.
+    devices: HashMap<u32, DeviceDescriptor>,
     /// Range mapping for VM exit mmio operations.
     mmio_bus: BTreeMap<Range, Arc<dyn Device>>,
     /// Range mapping for VM exit pio operations.
@@ -81,26 +85,30 @@ impl DeviceManager {
         }
     }
 
-    fn insert(&mut self, dev: DeviceDescriptor) -> Result<()> {
+    fn insert(&mut self, dev: DeviceDescriptor) -> Result<(u32)> {
         // Insert if the key is non-present, else report error.
-        if self.devices.contains_key(&(dev.name)) {
+        if self.devices.contains_key(&(dev.instance_id)) {
             return Err(Error::Exist);
         }
-        self.devices.insert(dev.name.clone(), dev);
-        Ok(())
+        let id = dev.instance_id;
+
+        self.devices.insert(id, dev);
+        Ok(id)
     }
 
-    fn remove(&mut self, name: String) -> Option<DeviceDescriptor> {
-        self.devices.remove(&name)
+    fn remove(&mut self, instance_id: u32) -> Option<DeviceDescriptor> {
+        self.devices.remove(&instance_id)
     }
 
     fn device_descriptor(
         &self,
+        id: u32,
         dev: Arc<dyn Device>,
         parent_bus: Option<Arc<dyn Device>>,
         resources: Vec<IoResource>,
+        irq: Option<IrqResource>,
     ) -> DeviceDescriptor {
-        DeviceDescriptor::new(dev.name(), dev.clone(), parent_bus, resources)
+        DeviceDescriptor::new(id, dev.name(), dev.clone(), parent_bus, resources, irq)
     }
 
     // Allocate IO resources.
@@ -183,42 +191,6 @@ impl DeviceManager {
         resources.len()
     }
 
-    /// Register a new device with its parent bus and resources request set.
-    pub fn register_device(
-        &mut self,
-        dev: Arc<dyn Device>,
-        parent_bus: Option<Arc<dyn Device>>,
-        resources: &mut Vec<IoResource>,
-    ) -> Result<()> {
-        // Reserve resources
-        if let Err(Error::IoResourceAllocate(idx, e)) = self.allocate_io_resources(resources) {
-            // Free allocated resources if one resource failed to allocate.
-            if idx > 0 {
-                self.free_io_resources(&resources[0..idx - 1]);
-                return Err(Error::IoResourceAllocate(idx, e));
-            }
-        }
-
-        // Register device resources
-        let register_len = self.register_resources(dev.clone(), resources);
-        // Unregister and free resources once failed.
-        if register_len < resources.len() && register_len > 0 {
-            self.unregister_resources(&resources[0..register_len - 1]);
-            self.free_io_resources(resources);
-            return Err(Error::Overlap);
-        } else if register_len == 0 {
-            self.free_io_resources(resources);
-            return Err(Error::Overlap);
-        }
-
-        // Set the allocated resources back
-        dev.set_resources(resources);
-
-        // Insert bus/device to DeviceManager with parent bus
-        let descriptor = self.device_descriptor(dev, parent_bus, resources.to_vec());
-        self.insert(descriptor)
-    }
-
     // Unregister resources with all entries addresses valid.
     fn unregister_resources(&mut self, resources: &[IoResource]) {
         for res in resources.iter() {
@@ -233,13 +205,106 @@ impl DeviceManager {
         }
     }
 
+    fn allocate_irq_resource(
+        &mut self,
+        interrupt: Option<IrqResource>,
+    ) -> Result<Option<IrqResource>> {
+        match interrupt {
+            Some(IrqResource(irq)) => {
+                // Allocate irq resource
+                let irq_num = self
+                    .resource
+                    .allocate_irq(irq)
+                    .map_err(Error::IrqAllocate)?;
+                Ok(Some(IrqResource(Some(irq_num))))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn free_irq_resource(&mut self, interrupt: Option<IrqResource>) {
+        match interrupt {
+            Some(IrqResource(irq)) => self.resource.free_irq(irq),
+            None => return,
+        }
+    }
+
+    fn allocate_id_resource(&mut self) -> Result<u32> {
+        self.resource
+            .allocate_instance_id()
+            .map_err(Error::InstanceIdAllocate)
+    }
+
+    fn free_id_resource(&mut self, id: u32) {
+        self.resource.free_instance_id(id);
+    }
+
+    /// Register a new device with its parent bus and resources request set.
+    /// Return Ok(instance_id) when sucessfully registered for caller usage.
+    pub fn register_device(
+        &mut self,
+        dev: Arc<dyn Device>,
+        parent_bus: Option<Arc<dyn Device>>,
+        resources: &mut Vec<IoResource>,
+        interrupt: Option<IrqResource>,
+    ) -> Result<(u32)> {
+        // Allocate an instance id
+        let id = self.allocate_id_resource()?;
+
+        // Reserve resources
+        if let Err(Error::IoResourceAllocate(idx, e)) = self.allocate_io_resources(resources) {
+            // Free allocated resources if one resource failed to allocate.
+            if idx > 0 {
+                self.free_io_resources(&resources[0..idx - 1]);
+                self.free_id_resource(id);
+                return Err(Error::IoResourceAllocate(idx, e));
+            }
+        }
+
+        // Register device resources
+        let register_len = self.register_resources(dev.clone(), resources);
+        // Unregister and free resources once failed.
+        if register_len < resources.len() && register_len > 0 {
+            self.unregister_resources(&resources[0..register_len - 1]);
+            self.free_io_resources(resources);
+            self.free_id_resource(id);
+            return Err(Error::Overlap);
+        } else if register_len == 0 {
+            self.free_io_resources(resources);
+            self.free_id_resource(id);
+            return Err(Error::Overlap);
+        }
+
+        match self.allocate_irq_resource(interrupt) {
+            Ok(irq) => {
+                // Set the allocated resource back
+                dev.set_resources(resources, irq);
+
+                let descriptor =
+                    self.device_descriptor(id, dev, parent_bus, resources.to_vec(), irq);
+
+                // Insert bus/device to DeviceManager with parent bus
+                self.insert(descriptor)
+            }
+            Err(e) => {
+                self.unregister_resources(resources);
+                self.free_io_resources(resources);
+                self.free_id_resource(id);
+                Err(e)
+            }
+        }
+    }
+
     /// Unregister a device from `DeviceManager`.
-    pub fn unregister_device(&mut self, dev: Arc<dyn Device>) -> Result<()> {
-        if let Some(descriptor) = self.remove(dev.name()) {
+    pub fn unregister_device(&mut self, instance_id: u32) -> Result<()> {
+        if let Some(descriptor) = self.remove(instance_id) {
+            // Free instance id resource
+            self.free_id_resource(instance_id);
             // Unregister resources
             self.unregister_resources(&descriptor.resources);
             // Free the resources
             self.free_io_resources(&descriptor.resources);
+            self.free_irq_resource(descriptor.irq);
             Ok(())
         } else {
             Err(Error::NonExist)

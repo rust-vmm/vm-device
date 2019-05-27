@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 //! Handles routing to devices in an address space.
-use std::string::String;
 use std::sync::Arc;
 use vm_memory::{GuestAddress, GuestUsize};
 
@@ -19,7 +18,7 @@ pub trait Device: Send {
     ///
     /// This will be called by DeviceManager::register_device() to set
     /// the allocated resource from the vm_allocator back to device.
-    fn set_resources(&self, res: &[IoResource]);
+    fn set_resources(&self, res: &[IoResource], irq: Option<IrqResource>);
 }
 
 /// IO Resource type.
@@ -61,9 +60,15 @@ impl IoResource {
     }
 }
 
-/// Storing Device information and for topology managing by name.
+/// Legacy interrupt resource.
+#[derive(Debug, Copy, Clone)]
+pub struct IrqResource(pub Option<u32>);
+
+/// Storing Device information and for topology managing.
 pub struct DeviceDescriptor {
-    /// Device name.
+    /// Device instance id information.
+    pub instance_id: u32,
+    /// Device type name.
     pub name: String,
     /// The device to descript.
     pub device: Arc<dyn Device>,
@@ -71,21 +76,27 @@ pub struct DeviceDescriptor {
     pub parent_bus: Option<Arc<dyn Device>>,
     /// Device resource set.
     pub resources: Vec<IoResource>,
+    /// Device IRQ resource.
+    pub irq: Option<IrqResource>,
 }
 
 impl DeviceDescriptor {
     /// Create a descriptor for one device.
     pub fn new(
+        instance_id: u32,
         name: String,
         dev: Arc<dyn Device>,
         parent_bus: Option<Arc<dyn Device>>,
         resources: Vec<IoResource>,
+        irq: Option<IrqResource>,
     ) -> Self {
         DeviceDescriptor {
+            instance_id,
             name,
             device: dev,
             parent_bus,
             resources,
+            irq,
         }
     }
 }
