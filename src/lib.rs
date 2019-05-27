@@ -15,5 +15,5 @@ extern crate vm_memory;
 pub mod device;
 pub mod device_manager;
 
-pub use self::device::{Device, DeviceDescriptor, IoType, Resource};
+pub use self::device::{Device, DeviceDescriptor, IoResource, IoType};
 pub use self::device_manager::{DeviceManager, Error as DeviceManagerError, Range, Result};

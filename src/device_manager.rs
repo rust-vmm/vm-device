@@ -98,7 +98,7 @@ impl DeviceManager {
         &self,
         dev: Arc<dyn Device>,
         parent_bus: Option<Arc<dyn Device>>,
-        resources: Vec<Resource>,
+        resources: Vec<IoResource>,
     ) -> DeviceDescriptor {
         DeviceDescriptor::new(dev.name(), dev.clone(), parent_bus, resources)
     }
@@ -106,7 +106,7 @@ impl DeviceManager {
     // Allocate IO resources.
     // In order to transport the SystemAllocator Error, return Err with
     // the failure allocated index, or else return Ok().
-    fn allocate_io_resources(&mut self, resources: &mut Vec<Resource>) -> Result<()> {
+    fn allocate_io_resources(&mut self, resources: &mut Vec<IoResource>) -> Result<()> {
         for (idx, res) in resources.iter_mut().enumerate() {
             match res.res_type {
                 IoType::Pio => {
@@ -132,7 +132,7 @@ impl DeviceManager {
     }
 
     // Free valid `resources` which means all entries have a valid address.
-    fn free_io_resources(&mut self, resources: &[Resource]) {
+    fn free_io_resources(&mut self, resources: &[IoResource]) {
         for res in resources.iter() {
             // The resources addresses being free should not be None.
             let addr = res.try_unwrap();
@@ -149,7 +149,11 @@ impl DeviceManager {
     // Register IO resources.
     // Return the failure registering index when fails,
     // or else return resources length.
-    fn register_resources(&mut self, dev: Arc<dyn Device>, resources: &mut Vec<Resource>) -> usize {
+    fn register_resources(
+        &mut self,
+        dev: Arc<dyn Device>,
+        resources: &mut Vec<IoResource>,
+    ) -> usize {
         for (idx, res) in resources.iter().enumerate() {
             // The resources addresses being registered are sucessfully allocated before.
             let addr = res.try_unwrap();
@@ -184,7 +188,7 @@ impl DeviceManager {
         &mut self,
         dev: Arc<dyn Device>,
         parent_bus: Option<Arc<dyn Device>>,
-        resources: &mut Vec<Resource>,
+        resources: &mut Vec<IoResource>,
     ) -> Result<()> {
         // Reserve resources
         if let Err(Error::IoResourceAllocate(idx, e)) = self.allocate_io_resources(resources) {
@@ -216,7 +220,7 @@ impl DeviceManager {
     }
 
     // Unregister resources with all entries addresses valid.
-    fn unregister_resources(&mut self, resources: &[Resource]) {
+    fn unregister_resources(&mut self, resources: &[IoResource]) {
         for res in resources.iter() {
             // The resources addresses being unregistered is sucessfully allocated before.
             let addr = res.try_unwrap();
