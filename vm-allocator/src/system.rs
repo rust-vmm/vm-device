@@ -10,8 +10,21 @@
 use vm_memory::{GuestAddress, GuestUsize};
 
 use crate::address::AddressAllocator;
+use crate::id::IdAllocator;
 
 use libc::{sysconf, _SC_PAGESIZE};
+use std::result;
+
+/// Errors associated with system resources allocation.
+#[derive(Debug)]
+pub enum Error {
+    /// Address allocation failed.
+    AddressAllocate(crate::address::Error),
+    /// Id allocation failed.
+    IdAllocate(crate::id::Error),
+}
+
+pub type Result<T> = result::Result<T, Error>;
 
 /// Safe wrapper for `sysconf(_SC_PAGESIZE)`.
 #[inline(always)]
@@ -30,16 +43,17 @@ fn pagesize() -> usize {
 ///   let mut allocator = SystemAllocator::new(
 ///           Some(GuestAddress(0x1000)), Some(0x10000),
 ///           GuestAddress(0x10000000), 0x10000000,
-///           5).unwrap();
-///    assert_eq!(allocator.allocate_irq(), Some(5));
-///    assert_eq!(allocator.allocate_irq(), Some(6));
+///           5, 24, 1).unwrap();
+///    assert_eq!(allocator.allocate_irq(None).unwrap(), 5);
+///    assert_eq!(allocator.allocate_irq(Some(7)).unwrap(), 7);
 ///    assert_eq!(allocator.allocate_mmio_addresses(None, 0x1000), Some(GuestAddress(0x1ffff000)));
 ///
 /// ```
 pub struct SystemAllocator {
     io_address_space: Option<AddressAllocator>,
     mmio_address_space: AddressAllocator,
-    next_irq: u32,
+    irq: IdAllocator,
+    instance_id: IdAllocator,
 }
 
 impl SystemAllocator {
@@ -50,12 +64,16 @@ impl SystemAllocator {
     /// * `mmio_base` - The starting address of MMIO memory.
     /// * `mmio_size` - The size of MMIO memory.
     /// * `first_irq` - The first irq number to give out.
+    /// * `last_irq` - The last irq number to give out.
+    /// * `first_instance_id` - The first device instance id to give out.
     pub fn new(
         io_base: Option<GuestAddress>,
         io_size: Option<GuestUsize>,
         mmio_base: GuestAddress,
         mmio_size: GuestUsize,
         first_irq: u32,
+        last_irq: u32,
+        first_instance_id: u32,
     ) -> Option<Self> {
         let page_size = pagesize() as u64;
         Some(SystemAllocator {
@@ -65,18 +83,20 @@ impl SystemAllocator {
                 None
             },
             mmio_address_space: AddressAllocator::new(mmio_base, mmio_size, Some(page_size))?,
-            next_irq: first_irq,
+            irq: IdAllocator::new(first_irq, last_irq)?,
+            instance_id: IdAllocator::new(first_instance_id, u32::max_value())?,
         })
     }
 
     /// Reserves the next available system irq number.
-    pub fn allocate_irq(&mut self) -> Option<u32> {
-        if let Some(irq_num) = self.next_irq.checked_add(1) {
-            self.next_irq = irq_num;
-            Some(irq_num - 1)
-        } else {
-            None
-        }
+    /// * `irq` - A specific value trying to allocate, or None means no specific value.
+    pub fn allocate_irq(&mut self, irq: Option<u32>) -> Result<u32> {
+        self.irq.allocate(irq).map_err(Error::IdAllocate)
+    }
+
+    /// Reserves the next available system device instance id number.
+    pub fn allocate_instance_id(&mut self) -> Result<u32> {
+        self.instance_id.allocate(None).map_err(Error::IdAllocate)
     }
 
     /// Reserves a section of `size` bytes of IO address space.

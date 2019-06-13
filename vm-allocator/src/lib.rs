@@ -13,7 +13,9 @@
 extern crate libc;
 
 mod address;
+mod id;
 mod system;
 
 pub use crate::address::AddressAllocator;
-pub use crate::system::SystemAllocator;
+pub use crate::id::IdAllocator;
+pub use crate::system::{Error, SystemAllocator};
