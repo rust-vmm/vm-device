@@ -99,6 +99,21 @@ impl SystemAllocator {
         self.instance_id.allocate(None).map_err(Error::IdAllocate)
     }
 
+    /// Free an interrupt number.
+    /// Only free an `irq` if it matches exactly an already allocated one.
+    pub fn free_irq(&mut self, irq: Option<u32>) {
+        match irq {
+            Some(i) => self.irq.free(i),
+            None => return,
+        }
+    }
+
+    /// Free an instance id.
+    /// Only free an `id` if it matches exactly an already allocated one.
+    pub fn free_instance_id(&mut self, id: u32) {
+        self.instance_id.free(id);
+    }
+
     /// Reserves a section of `size` bytes of IO address space.
     pub fn allocate_io_addresses(
         &mut self,

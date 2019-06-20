@@ -96,4 +96,11 @@ impl IdAllocator {
         self.used_map.sort();
         Ok(new)
     }
+
+    /// Free an already allocated id and will keep the order.
+    pub fn free(&mut self, number: u32) {
+        if let Ok(idx) = self.used_map.binary_search(&number) {
+            self.used_map.remove(idx);
+        }
+    }
 }
