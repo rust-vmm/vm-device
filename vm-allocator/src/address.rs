@@ -16,6 +16,7 @@ pub enum Error {
     Overflow,
     Overlap,
     UnalignedAddress,
+    NullRequest,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -29,8 +30,8 @@ pub type Result<T> = result::Result<T, Error>;
 /// # use vm_allocator::AddressAllocator;
 /// # use vm_memory::{Address, GuestAddress, GuestUsize};
 ///   AddressAllocator::new(GuestAddress(0x1000), 0x10000, Some(0x100)).map(|mut pool| {
-///       assert_eq!(pool.allocate(None, 0x110), Some(GuestAddress(0x10e00)));
-///       assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10d00)));
+///       assert_eq!(pool.allocate(None, 0x110).unwrap(), GuestAddress(0x10e00));
+///       assert_eq!(pool.allocate(None, 0x100).unwrap(), GuestAddress(0x10d00));
 ///   });
 /// ```
 #[derive(Debug, Eq, PartialEq)]
@@ -134,7 +135,7 @@ impl AddressAllocator {
         Err(Error::Overflow)
     }
 
-    fn first_available_range(&self, req_size: GuestUsize) -> Option<GuestAddress> {
+    fn first_available_range(&self, req_size: GuestUsize) -> Result<GuestAddress> {
         let mut prev_end_address = self.base;
 
         for (address, size) in self.ranges.iter() {
@@ -143,22 +144,29 @@ impl AddressAllocator {
             // As each new range is allocated at the end of the available address space,
             // we will tend to always allocate new ranges there as well. In other words,
             // ranges accumulate at the end of the address space.
-            let prev_end_align = self.align_address(prev_end_address)?;
+            let prev_end_align = self
+                .align_address(prev_end_address)
+                .ok_or(Error::Overflow)?;
+
             if address
                 .unchecked_sub(prev_end_align.raw_value())
                 .raw_value()
                 >= req_size
             {
-                let req_align = self.align_address(GuestAddress(req_size))?;
-                let addr = self.align_address(address.unchecked_sub(req_align.raw_value()))?;
+                let req_align = self
+                    .align_address(GuestAddress(req_size))
+                    .ok_or(Error::Overflow)?;
+                let addr = self
+                    .align_address(address.unchecked_sub(req_align.raw_value()))
+                    .ok_or(Error::Overflow)?;
 
-                return Some(addr);
+                return Ok(addr);
             }
 
             prev_end_address = address.unchecked_add(*size);
         }
 
-        None
+        Err(Error::Overflow)
     }
 
     /// Allocates a range of addresses from the managed region. Returns `Some(allocated_address)`
@@ -167,24 +175,19 @@ impl AddressAllocator {
         &mut self,
         address: Option<GuestAddress>,
         size: GuestUsize,
-    ) -> Option<GuestAddress> {
+    ) -> Result<GuestAddress> {
         if size == 0 {
-            return None;
+            return Err(Error::NullRequest);
         }
 
         let new_addr = match address {
-            Some(req_address) => match self.available_range(req_address, size) {
-                Ok(addr) => addr,
-                Err(_) => {
-                    return None;
-                }
-            },
+            Some(req_address) => self.available_range(req_address, size)?,
             None => self.first_available_range(size)?,
         };
 
         self.ranges.insert(new_addr, size);
 
-        Some(new_addr)
+        Ok(new_addr)
     }
 
     /// Free an already allocated address range.
@@ -238,30 +241,30 @@ mod tests {
     #[test]
     fn allocate_fails_not_enough_space() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x1000, Some(0x100)).unwrap();
-        assert_eq!(pool.allocate(None, 0x800), Some(GuestAddress(0x1800)));
-        assert_eq!(pool.allocate(None, 0x900), None);
-        assert_eq!(pool.allocate(None, 0x400), Some(GuestAddress(0x1400)));
+        assert_eq!(pool.allocate(None, 0x800).unwrap(), GuestAddress(0x1800));
+        assert!(pool.allocate(None, 0x900).is_err());
+        assert_eq!(pool.allocate(None, 0x400).unwrap(), GuestAddress(0x1400));
     }
 
     #[test]
     fn allocate_alignment() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x10000, Some(0x100)).unwrap();
-        assert_eq!(pool.allocate(None, 0x110), Some(GuestAddress(0x10e00)));
-        assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10d00)));
-        assert_eq!(pool.allocate(None, 0x10), Some(GuestAddress(0x10c00)));
+        assert_eq!(pool.allocate(None, 0x110).unwrap(), GuestAddress(0x10e00));
+        assert_eq!(pool.allocate(None, 0x100).unwrap(), GuestAddress(0x10d00));
+        assert_eq!(pool.allocate(None, 0x10).unwrap(), GuestAddress(0x10c00));
     }
 
     #[test]
     fn allocate_address() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x1000, None).unwrap();
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
 
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1a00)), 0x100),
-            Some(GuestAddress(0x1a00))
+            pool.allocate(Some(GuestAddress(0x1a00)), 0x100).unwrap(),
+            GuestAddress(0x1a00)
         );
     }
 
@@ -269,17 +272,17 @@ mod tests {
     fn allocate_address_alignment() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x1000, Some(0x100)).unwrap();
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
 
         // Unaligned request
-        assert_eq!(pool.allocate(Some(GuestAddress(0x1210)), 0x800), None);
+        assert!(pool.allocate(Some(GuestAddress(0x1210)), 0x800).is_err());
 
         // Aligned request
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1b00)), 0x100),
-            Some(GuestAddress(0x1b00))
+            pool.allocate(Some(GuestAddress(0x1b00)), 0x100).unwrap(),
+            GuestAddress(0x1b00)
         );
     }
 
@@ -289,24 +292,24 @@ mod tests {
 
         // First range is [0x1200:0x1a00]
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
 
         // Second range is [0x1c00:0x1e00]
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1c00)), 0x200),
-            Some(GuestAddress(0x1c00))
+            pool.allocate(Some(GuestAddress(0x1c00)), 0x200).unwrap(),
+            GuestAddress(0x1c00)
         );
 
         // There is 0x200 between the first 2 ranges.
         // We ask for an available address but the range is too big
-        assert_eq!(pool.allocate(Some(GuestAddress(0x1b00)), 0x800), None);
+        assert!(pool.allocate(Some(GuestAddress(0x1b00)), 0x800).is_err());
 
         // We ask for an available address, with a small enough range
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1b00)), 0x100),
-            Some(GuestAddress(0x1b00))
+            pool.allocate(Some(GuestAddress(0x1b00)), 0x100).unwrap(),
+            GuestAddress(0x1b00)
         );
     }
 
@@ -316,15 +319,15 @@ mod tests {
 
         // First range is [0x1200:0x1a00]
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
 
         pool.free(GuestAddress(0x1200), 0x800);
 
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
     }
 
@@ -334,14 +337,14 @@ mod tests {
 
         // First range is [0x1200:0x1a00]
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
 
         // We try to free a range smaller than the allocated one.
         pool.free(GuestAddress(0x1200), 0x100);
 
-        assert_eq!(pool.allocate(Some(GuestAddress(0x1200)), 0x800), None);
+        assert!(pool.allocate(Some(GuestAddress(0x1200)), 0x800).is_err());
     }
 
     #[test]
@@ -349,15 +352,15 @@ mod tests {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x1000, Some(0x100)).unwrap();
 
         // First allocation fails
-        assert_eq!(pool.allocate(Some(GuestAddress(0x1200)), 0x2000), None);
+        assert!(pool.allocate(Some(GuestAddress(0x1200)), 0x2000).is_err());
 
         // We try to free a range that was not allocated.
         pool.free(GuestAddress(0x1200), 0x2000);
 
         // Now we try an allocation that should succeed.
         assert_eq!(
-            pool.allocate(Some(GuestAddress(0x1200)), 0x800),
-            Some(GuestAddress(0x1200))
+            pool.allocate(Some(GuestAddress(0x1200)), 0x800).unwrap(),
+            GuestAddress(0x1200)
         );
     }
 }

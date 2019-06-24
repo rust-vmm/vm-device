@@ -14,10 +14,13 @@ use crate::id::IdAllocator;
 
 use libc::{sysconf, _SC_PAGESIZE};
 use std::result;
+use std::sync::{Arc, Mutex};
 
 /// Errors associated with system resources allocation.
 #[derive(Debug)]
 pub enum Error {
+    /// Address is none.
+    NoneAddress,
     /// Address allocation failed.
     AddressAllocate(crate::address::Error),
     /// Id allocation failed.
@@ -46,14 +49,15 @@ fn pagesize() -> usize {
 ///           5, 24, 1).unwrap();
 ///    assert_eq!(allocator.allocate_irq(None).unwrap(), 5);
 ///    assert_eq!(allocator.allocate_irq(Some(7)).unwrap(), 7);
-///    assert_eq!(allocator.allocate_mmio_addresses(None, 0x1000), Some(GuestAddress(0x1ffff000)));
+///    assert_eq!(allocator.allocate_mmio_addresses(None, 0x1000).unwrap(), GuestAddress(0x1ffff000));
 ///
 /// ```
+#[derive(Clone)]
 pub struct SystemAllocator {
-    io_address_space: Option<AddressAllocator>,
-    mmio_address_space: AddressAllocator,
-    irq: IdAllocator,
-    instance_id: IdAllocator,
+    io_address_space: Arc<Mutex<Option<AddressAllocator>>>,
+    mmio_address_space: Arc<Mutex<AddressAllocator>>,
+    irq: Arc<Mutex<IdAllocator>>,
+    instance_id: Arc<Mutex<IdAllocator>>,
 }
 
 impl SystemAllocator {
@@ -78,32 +82,47 @@ impl SystemAllocator {
         let page_size = pagesize() as u64;
         Some(SystemAllocator {
             io_address_space: if let (Some(b), Some(s)) = (io_base, io_size) {
-                Some(AddressAllocator::new(b, s, Some(0x1))?)
+                Arc::new(Mutex::new(Some(AddressAllocator::new(b, s, Some(0x1))?)))
             } else {
-                None
+                Arc::new(Mutex::new(None))
             },
-            mmio_address_space: AddressAllocator::new(mmio_base, mmio_size, Some(page_size))?,
-            irq: IdAllocator::new(first_irq, last_irq)?,
-            instance_id: IdAllocator::new(first_instance_id, u32::max_value())?,
+            mmio_address_space: Arc::new(Mutex::new(AddressAllocator::new(
+                mmio_base,
+                mmio_size,
+                Some(page_size),
+            )?)),
+            irq: Arc::new(Mutex::new(IdAllocator::new(first_irq, last_irq)?)),
+            instance_id: Arc::new(Mutex::new(IdAllocator::new(
+                first_instance_id,
+                u32::max_value(),
+            )?)),
         })
     }
 
     /// Reserves the next available system irq number.
     /// * `irq` - A specific value trying to allocate, or None means no specific value.
     pub fn allocate_irq(&mut self, irq: Option<u32>) -> Result<u32> {
-        self.irq.allocate(irq).map_err(Error::IdAllocate)
+        self.irq
+            .lock()
+            .expect("failed to acquire lock")
+            .allocate(irq)
+            .map_err(Error::IdAllocate)
     }
 
     /// Reserves the next available system device instance id number.
     pub fn allocate_instance_id(&mut self) -> Result<u32> {
-        self.instance_id.allocate(None).map_err(Error::IdAllocate)
+        self.instance_id
+            .lock()
+            .expect("failed to acquire lock")
+            .allocate(None)
+            .map_err(Error::IdAllocate)
     }
 
     /// Free an interrupt number.
     /// Only free an `irq` if it matches exactly an already allocated one.
     pub fn free_irq(&mut self, irq: Option<u32>) {
         match irq {
-            Some(i) => self.irq.free(i),
+            Some(i) => self.irq.lock().expect("failed to acquire lock").free(i),
             None => return,
         }
     }
@@ -111,7 +130,10 @@ impl SystemAllocator {
     /// Free an instance id.
     /// Only free an `id` if it matches exactly an already allocated one.
     pub fn free_instance_id(&mut self, id: u32) {
-        self.instance_id.free(id);
+        self.instance_id
+            .lock()
+            .expect("failed to acquire lock")
+            .free(id);
     }
 
     /// Reserves a section of `size` bytes of IO address space.
@@ -119,10 +141,19 @@ impl SystemAllocator {
         &mut self,
         address: GuestAddress,
         size: GuestUsize,
-    ) -> Option<GuestAddress> {
-        self.io_address_space
-            .as_mut()?
-            .allocate(Some(address), size)
+    ) -> Result<GuestAddress> {
+        if let Some(io_address) = self
+            .io_address_space
+            .lock()
+            .expect("failed to acquire lock")
+            .as_mut()
+        {
+            io_address
+                .allocate(Some(address), size)
+                .map_err(Error::AddressAllocate)
+        } else {
+            Err(Error::NoneAddress)
+        }
     }
 
     /// Reserves a section of `size` bytes of MMIO address space.
@@ -130,14 +161,23 @@ impl SystemAllocator {
         &mut self,
         address: Option<GuestAddress>,
         size: GuestUsize,
-    ) -> Option<GuestAddress> {
-        self.mmio_address_space.allocate(address, size)
+    ) -> Result<GuestAddress> {
+        self.mmio_address_space
+            .lock()
+            .expect("failed to acquire lock")
+            .allocate(address, size)
+            .map_err(Error::AddressAllocate)
     }
 
     /// Free an IO address range.
     /// We can only free a range if it matches exactly an already allocated range.
     pub fn free_io_addresses(&mut self, address: GuestAddress, size: GuestUsize) {
-        if let Some(io_address) = self.io_address_space.as_mut() {
+        if let Some(io_address) = self
+            .io_address_space
+            .lock()
+            .expect("failed to acquire lock")
+            .as_mut()
+        {
             io_address.free(address, size)
         }
     }
@@ -145,6 +185,9 @@ impl SystemAllocator {
     /// Free an MMIO address range.
     /// We can only free a range if it matches exactly an already allocated range.
     pub fn free_mmio_addresses(&mut self, address: GuestAddress, size: GuestUsize) {
-        self.mmio_address_space.free(address, size)
+        self.mmio_address_space
+            .lock()
+            .expect("failed to acquire lock")
+            .free(address, size)
     }
 }
