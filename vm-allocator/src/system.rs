@@ -33,7 +33,7 @@ fn pagesize() -> usize {
 ///           5).unwrap();
 ///    assert_eq!(allocator.allocate_irq(), Some(5));
 ///    assert_eq!(allocator.allocate_irq(), Some(6));
-///    assert_eq!(allocator.allocate_mmio_addresses(None, 0x1000), Some(GuestAddress(0x1fffe000)));
+///    assert_eq!(allocator.allocate_mmio_addresses(None, 0x1000), Some(GuestAddress(0x1ffff000)));
 ///
 /// ```
 pub struct SystemAllocator {
@@ -43,9 +43,7 @@ pub struct SystemAllocator {
 }
 
 impl SystemAllocator {
-    /// Creates a new `SystemAllocator` for managing addresses and irq numvers.
-    /// Can return `None` if `base` + `size` overflows a u64 or if alignment isn't a power
-    /// of two.
+    /// Creates a new `SystemAllocator` for managing addresses and irq numbers.
     ///
     /// * `io_base` - The starting address of IO memory.
     /// * `io_size` - The size of IO memory.

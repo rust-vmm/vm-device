@@ -30,7 +30,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// # use vm_memory::{Address, GuestAddress, GuestUsize};
 ///   AddressAllocator::new(GuestAddress(0x1000), 0x10000, Some(0x100)).map(|mut pool| {
 ///       assert_eq!(pool.allocate(None, 0x110), Some(GuestAddress(0x10e00)));
-///       assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10c00)));
+///       assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10d00)));
 ///   });
 /// ```
 #[derive(Debug, Eq, PartialEq)]
@@ -43,11 +43,11 @@ pub struct AddressAllocator {
 
 impl AddressAllocator {
     /// Creates a new `AddressAllocator` for managing a range of addresses.
-    /// Can return `None` if `pool_base` + `pool_size` overflows a u64 or if alignment isn't a power
+    /// Can return `None` if `base` + `size` overflows a u64 or if alignment isn't a power
     /// of two.
     ///
-    /// * `pool_base` - The starting address of the range to manage.
-    /// * `pool_size` - The size of the address range in bytes.
+    /// * `base` - The starting address of the range to manage.
+    /// * `size` - The size of the address range in bytes.
     /// * `align_size` - The minimum size of an address region to align to, defaults to four.
     pub fn new(
         base: GuestAddress,
@@ -58,12 +58,13 @@ impl AddressAllocator {
             return None;
         }
 
-        let end = base.checked_add(size - 1)?;
+        let bound = base.checked_add(size)?;
         let alignment = align_size.unwrap_or(4);
         if !alignment.is_power_of_two() || alignment == 0 {
             return None;
         }
 
+        let end = bound.unchecked_sub(1);
         let mut allocator = AddressAllocator {
             base,
             end,
@@ -73,19 +74,19 @@ impl AddressAllocator {
 
         // Insert the last address as a zero size range.
         // This is our end of address space marker.
-        allocator.ranges.insert(base.checked_add(size)?, 0);
+        allocator.ranges.insert(bound, 0);
 
         Some(allocator)
     }
 
-    fn align_address(&self, address: GuestAddress) -> GuestAddress {
+    fn align_address(&self, address: GuestAddress) -> Option<GuestAddress> {
         let align_adjust = if address.raw_value() % self.alignment != 0 {
             self.alignment - (address.raw_value() % self.alignment)
         } else {
             0
         };
 
-        address.unchecked_add(align_adjust)
+        address.checked_add(align_adjust)
     }
 
     fn available_range(
@@ -93,7 +94,7 @@ impl AddressAllocator {
         req_address: GuestAddress,
         req_size: GuestUsize,
     ) -> Result<GuestAddress> {
-        let aligned_address = self.align_address(req_address);
+        let aligned_address = self.align_address(req_address).ok_or(Error::Overflow)?;
 
         // The requested address should be aligned.
         if aligned_address != req_address {
@@ -101,7 +102,7 @@ impl AddressAllocator {
         }
 
         // The aligned address should be within the address space range.
-        if aligned_address >= self.end || aligned_address <= self.base {
+        if aligned_address > self.end || aligned_address < self.base {
             return Err(Error::Overflow);
         }
 
@@ -142,12 +143,16 @@ impl AddressAllocator {
             // As each new range is allocated at the end of the available address space,
             // we will tend to always allocate new ranges there as well. In other words,
             // ranges accumulate at the end of the address space.
+            let prev_end_align = self.align_address(prev_end_address)?;
             if address
-                .unchecked_sub(self.align_address(prev_end_address).raw_value())
+                .unchecked_sub(prev_end_align.raw_value())
                 .raw_value()
                 >= req_size
             {
-                return Some(self.align_address(address.unchecked_sub(req_size + self.alignment)));
+                let req_align = self.align_address(GuestAddress(req_size))?;
+                let addr = self.align_address(address.unchecked_sub(req_align.raw_value()))?;
+
+                return Some(addr);
             }
 
             prev_end_address = address.unchecked_add(*size);
@@ -185,6 +190,10 @@ impl AddressAllocator {
     /// Free an already allocated address range.
     /// We can only free a range if it matches exactly an already allocated range.
     pub fn free(&mut self, address: GuestAddress, size: GuestUsize) {
+        // The last marker can not be removed.
+        if address == self.end || size == 0 {
+            return;
+        }
         if let Some(&range_size) = self.ranges.get(&address) {
             if size == range_size {
                 self.ranges.remove(&address);
@@ -229,17 +238,17 @@ mod tests {
     #[test]
     fn allocate_fails_not_enough_space() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x1000, Some(0x100)).unwrap();
-        assert_eq!(pool.allocate(None, 0x800), Some(GuestAddress(0x1700)));
+        assert_eq!(pool.allocate(None, 0x800), Some(GuestAddress(0x1800)));
         assert_eq!(pool.allocate(None, 0x900), None);
-        assert_eq!(pool.allocate(None, 0x400), Some(GuestAddress(0x1200)));
+        assert_eq!(pool.allocate(None, 0x400), Some(GuestAddress(0x1400)));
     }
 
     #[test]
     fn allocate_alignment() {
         let mut pool = AddressAllocator::new(GuestAddress(0x1000), 0x10000, Some(0x100)).unwrap();
         assert_eq!(pool.allocate(None, 0x110), Some(GuestAddress(0x10e00)));
-        assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10c00)));
-        assert_eq!(pool.allocate(None, 0x10), Some(GuestAddress(0x10b00)));
+        assert_eq!(pool.allocate(None, 0x100), Some(GuestAddress(0x10d00)));
+        assert_eq!(pool.allocate(None, 0x10), Some(GuestAddress(0x10c00)));
     }
 
     #[test]
