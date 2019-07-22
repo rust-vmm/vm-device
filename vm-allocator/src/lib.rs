@@ -23,5 +23,5 @@ pub use crate::id::IdAllocator;
 pub use crate::resource::{
     Error as ResourceAllocatorError, Resource, ResourceAllocator, ResourceSize,
 };
-pub use crate::system::SystemAllocator;
+pub use crate::system::{DefaultSystemAllocator, SystemAllocator};
 pub use crate::system::{Error, IdAllocateFunc, IdAllocateParameters};
