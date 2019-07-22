@@ -13,8 +13,12 @@
 
 extern crate libc;
 
+mod address;
+mod id;
 mod resource;
 
+pub use crate::address::AddressAllocator;
+pub use crate::id::IdAllocator;
 pub use crate::resource::{
     Error as ResourceAllocatorError, Resource, ResourceAllocator, ResourceSize,
 };

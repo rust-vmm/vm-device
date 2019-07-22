@@ -9,13 +9,20 @@
 
 use std::fmt::{self, Display};
 
+/// Define Error list for `ResourceAllocator` trait.
 #[derive(Debug)]
 pub enum Error {
+    /// The resource allocation failed because request is out os scope.
     OutofScope,
+    /// The resource allocation failed because request is overflow.
     Overflow,
+    /// The resource allocation failed because request scope is overlap.
     Overlap,
+    /// The resource allocation failed because request is duplicated.
     Duplicated,
+    /// The resource allocation failed because of unaligned address request.
     UnalignedAddress,
+    /// The resource allocation failed because request size is invalid.
     SizeInvalid,
 }
 
