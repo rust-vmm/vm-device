@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["Samuel Ortiz <sameo@linux.intel.com>"]
 repository = "https://github.com/rust-vmm/vm-device"
 license = "Apache-2.0"
+edition = "2018"
 
 [dependencies]
