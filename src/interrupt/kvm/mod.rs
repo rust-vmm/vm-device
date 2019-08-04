@@ -23,6 +23,11 @@ use self::legacy_irq::LegacyIrq;
 #[cfg(feature = "msi_irq")]
 mod msi_irq;
 
+#[cfg(feature = "pci_msi_irq")]
+mod pci_msi_irq;
+#[cfg(feature = "pci_msi_irq")]
+use self::pci_msi_irq::PciMsiIrq;
+
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
 /// The KVM framework provides methods to inject interrupts into the target virtual machines,
@@ -46,6 +51,7 @@ impl KvmIrqManager {
                 vmfd,
                 groups: HashMap::new(),
                 routes: Arc::new(KvmIrqRouting::new(vmfd2)),
+                max_msi_irqs: DEFAULT_MAX_MSI_IRQS_PER_DEVICE,
             }),
         }
     }
@@ -75,12 +81,18 @@ impl InterruptManager for KvmIrqManager {
         let mut mgr = self.mgr.lock().unwrap();
         mgr.destroy_group(group)
     }
+
+    fn set_max_msi_irqs(&self, max_msi_irqs: InterruptIndex) {
+        let mut mgr = self.mgr.lock().unwrap();
+        mgr.max_msi_irqs = max_msi_irqs;
+    }
 }
 
 struct KvmIrqManagerObj {
     vmfd: Arc<VmFd>,
     routes: Arc<KvmIrqRouting>,
     groups: HashMap<InterruptIndex, Arc<Box<dyn InterruptSourceGroup>>>,
+    max_msi_irqs: InterruptIndex,
 }
 
 impl KvmIrqManagerObj {
@@ -104,9 +116,13 @@ impl KvmIrqManagerObj {
                 self.routes.clone(),
             )?)),
             #[cfg(feature = "pci_msi_irq")]
-            InterruptSourceType::MsiIrq => {
-                PciMsiIrq::new(base, count, self.vmfd.clone(), self.routes.clone())?
-            }
+            InterruptSourceType::PciMsiIrq => Arc::new(Box::new(PciMsiIrq::new(
+                base,
+                count,
+                self.max_msi_irqs,
+                self.vmfd.clone(),
+                self.routes.clone(),
+            )?)),
         };
 
         self.groups.insert(base, group.clone());

@@ -67,8 +67,8 @@ pub type InterruptIndex = u32;
 pub const MAX_IRQS: InterruptIndex = 1024;
 
 #[cfg(feature = "msi_irq")]
-/// Maximum number of Message Signaled Interrupts per device.
-pub const MAX_MSI_IRQS_PER_DEVICE: InterruptIndex = 128;
+/// Default maximum number of Message Signaled Interrupts per device.
+pub const DEFAULT_MAX_MSI_IRQS_PER_DEVICE: InterruptIndex = 128;
 
 /// Type of interrupt source.
 #[derive(Copy, Clone, Debug)]
@@ -142,6 +142,9 @@ pub trait InterruptManager {
     /// before calling destroy_group(). This assumption helps to simplify InterruptSourceGroup
     /// implementations.
     fn destroy_group(&self, group: Arc<Box<dyn InterruptSourceGroup>>) -> Result<()>;
+
+    /// Set maximum supported MSI interrupts per device.
+    fn set_max_msi_irqs(&self, max: InterruptIndex);
 }
 
 /// Trait to manage a group of interrupt sources for a device.
