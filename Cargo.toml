@@ -7,10 +7,14 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
+libc = ">=0.2.39"
+
+kvm-ioctls = { git = "https://github.com/rust-vmm/kvm-ioctls.git", branch = "master", optional = true }
 vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util.git", branch = "master" }
 
 [features]
-default = ["legacy_irq", "generic_msi", "pci_msi", "pci_msix"]
+default = ["kvm_irq", "legacy_irq"]
+kvm_irq = ["kvm-ioctls"]
 legacy_irq = []
 msi_irq = []
 generic_msi = ["msi_irq"]
