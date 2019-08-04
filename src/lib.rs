@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! TODO: add documentation
+
 #[cfg(test)]
 mod tests {
     #[test]
