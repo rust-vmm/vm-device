@@ -1,3 +1,5 @@
+pub mod interrupt;
+
 #[cfg(test)]
 mod tests {
     #[test]
