@@ -19,6 +19,11 @@ use kvm_ioctls::VmFd;
 
 use super::*;
 
+#[cfg(feature = "legacy_irq")]
+mod legacy_irq;
+#[cfg(feature = "legacy_irq")]
+use self::legacy_irq::LegacyIrq;
+
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
 /// The KVM framework provides methods to inject interrupts into the target virtual machines,

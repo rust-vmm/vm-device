@@ -14,3 +14,4 @@ vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util.git", branch = 
 
 [features]
 kvm_irq = ["kvm-ioctls", "kvm-bindings"]
+legacy_irq = []
