@@ -8,6 +8,9 @@ edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"
+kvm-bindings = { version = "0.1", optional = true }
+kvm-ioctls = { git = "https://github.com/rust-vmm/kvm-ioctls.git", branch = "master", optional = true }
 vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util.git", branch = "master" }
 
 [features]
+kvm_irq = ["kvm-ioctls", "kvm-bindings"]

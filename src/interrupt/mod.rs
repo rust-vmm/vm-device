@@ -212,3 +212,8 @@ pub trait InterruptSourceGroup: Send + Sync {
     /// will get atomically cleared from the `interrupt_status` register.
     fn ack(&self, index: InterruptIndex, flags: u32) -> Result<()>;
 }
+
+#[cfg(feature = "kvm_irq")]
+mod kvm_irq;
+#[cfg(feature = "kvm_irq")]
+pub use kvm_irq::KvmIrqManager;
