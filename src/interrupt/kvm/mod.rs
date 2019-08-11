@@ -10,17 +10,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use kvm_bindings::{kvm_irq_routing, kvm_irq_routing_entry};
-#[cfg(all(
-    feature = "legacy_irq",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-use kvm_bindings::{
-    KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE, KVM_IRQ_ROUTING_IRQCHIP,
-};
+use kvm_bindings::{kvm_irq_routing, kvm_irq_routing_entry, KVM_IRQ_ROUTING_IRQCHIP};
 use kvm_ioctls::VmFd;
 
 use super::*;
+
+#[cfg(feature = "legacy_irq")]
+mod legacy_irq;
+#[cfg(feature = "legacy_irq")]
+use self::legacy_irq::LegacyIrq;
 
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
@@ -50,8 +48,6 @@ impl KvmIrqManager {
     }
 
     /// Prepare the interrupt manager for generating interrupts into the target VM.
-    ///
-    /// On x86 platforms, this will set up IRQ routings for legacy IRQs.
     pub fn initialize(&self) -> Result<()> {
         // Safe to unwrap because there's no legal way to break the mutex.
         let mgr = self.mgr.lock().unwrap();
@@ -96,14 +92,14 @@ impl KvmIrqManagerObj {
         base: InterruptIndex,
         count: u32,
     ) -> Result<Arc<Box<dyn InterruptSourceGroup>>> {
-        let group = match ty {
+        let group: Arc<Box<dyn InterruptSourceGroup>> = match ty {
             #[cfg(feature = "legacy_irq")]
-            InterruptSourceType::LegacyIrq => {
-                #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-                return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                LegacyIrq::new(base, count, self.vmfd.clone(), self.routes.clone())?
-            }
+            InterruptSourceType::LegacyIrq => Arc::new(Box::new(LegacyIrq::new(
+                base,
+                count,
+                self.vmfd.clone(),
+                self.routes.clone(),
+            )?)),
             #[cfg(feature = "pci_msi_irq")]
             InterruptSourceType::MsiIrq => {
                 PciMsiIrq::new(base, count, self.vmfd.clone(), self.routes.clone())?
@@ -150,11 +146,8 @@ impl KvmIrqRouting {
         #[allow(unused_mut)]
         let mut routes = self.routes.lock().unwrap();
 
-        #[cfg(all(
-            feature = "legacy_irq",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        self.initialize_legacy(&mut *routes)?;
+        #[cfg(feature = "legacy_irq")]
+        LegacyIrq::initialize_legacy(&mut *routes)?;
 
         self.set_routing(&*routes)
     }
@@ -221,57 +214,5 @@ impl KvmIrqRouting {
 
         let _ = routes.insert(hash_key(entry), *entry);
         self.set_routing(&routes)
-    }
-
-    #[cfg(feature = "legacy_irq")]
-    pub(super) fn add_legacy_entry(
-        gsi: u32,
-        chip: u32,
-        pin: u32,
-        routes: &mut HashMap<u64, kvm_irq_routing_entry>,
-    ) -> Result<()> {
-        let mut entry = kvm_irq_routing_entry {
-            gsi,
-            type_: KVM_IRQ_ROUTING_IRQCHIP,
-            ..Default::default()
-        };
-        // Safe because we are initializing all fields of the `irqchip` struct.
-        unsafe {
-            entry.u.irqchip.irqchip = chip;
-            entry.u.irqchip.pin = pin;
-        }
-        routes.insert(hash_key(&entry), entry);
-
-        Ok(())
-    }
-
-    #[cfg(all(
-        feature = "legacy_irq",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    /// Build routings for IRQs connected to the master PIC, the slave PIC or the first IOAPIC.
-    fn initialize_legacy(&self, routes: &mut HashMap<u64, kvm_irq_routing_entry>) -> Result<()> {
-        // Build routings for the master PIC
-        for i in 0..8 {
-            if i != 2 {
-                Self::add_legacy_entry(i, KVM_IRQCHIP_PIC_MASTER, i, routes)?;
-            }
-        }
-
-        // Build routings for the slave PIC
-        for i in 8..16 {
-            Self::add_legacy_entry(i, KVM_IRQCHIP_PIC_SLAVE, i - 8, routes)?;
-        }
-
-        // Build routings for the first IOAPIC
-        for i in 0..24 {
-            if i == 0 {
-                Self::add_legacy_entry(i, KVM_IRQCHIP_IOAPIC, 2, routes)?;
-            } else if i != 2 {
-                Self::add_legacy_entry(i, KVM_IRQCHIP_IOAPIC, i, routes)?;
-            };
-        }
-
-        Ok(())
     }
 }

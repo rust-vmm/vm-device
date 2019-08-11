@@ -16,3 +16,4 @@ vm-memory = { git = "https://github.com/rust-vmm/vm-memory" }
 
 [features]
 kvm_irq = ["kvm-ioctls", "kvm-bindings"]
+legacy_irq = []
