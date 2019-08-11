@@ -8,10 +8,11 @@ edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"
+kvm-bindings = { version = ">=0.1.1, <1.0", optional = true }
+kvm-ioctls = { git = "https://github.com/rust-vmm/kvm-ioctls.git", branch = "master", optional = true }
 vmm-sys-util = ">=0.2.0, <1.0"
 
 vm-memory = { git = "https://github.com/rust-vmm/vm-memory" }
 
 [features]
-legacy_irq = []
-msi_irq = []
+kvm_irq = ["kvm-ioctls", "kvm-bindings"]
