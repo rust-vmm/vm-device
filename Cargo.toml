@@ -7,3 +7,7 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
+libc = ">=0.2.39"
+vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util.git", branch = "master" }
+
+[features]
