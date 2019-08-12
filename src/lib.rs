@@ -7,6 +7,8 @@ extern crate vm_memory;
 
 use vm_memory::GuestAddress;
 
+pub mod resources;
+
 /// IO Addresses.
 #[derive(Debug, Copy, Clone)]
 pub enum IoAddress {
