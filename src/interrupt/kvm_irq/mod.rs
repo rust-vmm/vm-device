@@ -131,7 +131,11 @@ impl KvmIrqManagerObj {
 // Use (entry.type, entry.gsi) as the hash key because entry.gsi can't uniquely identify an
 // interrupt source on x86 platforms. The PIC and IOAPIC may share the same GSI on x86 platforms.
 fn hash_key(entry: &kvm_irq_routing_entry) -> u64 {
-    (u64::from(entry.type_) << 32) | u64::from(entry.gsi)
+    let type1 = match entry.type_ {
+        KVM_IRQ_ROUTING_IRQCHIP => unsafe { entry.u.irqchip.irqchip },
+        _ => 0,
+    };
+    (u64::from(type1) << 48 | u64::from(entry.type_) << 32) | u64::from(entry.gsi)
 }
 
 pub(super) struct KvmIrqRouting {
