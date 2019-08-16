@@ -57,3 +57,70 @@ pub(super) fn create_msi_routing_entries(
     }
     Ok(entries)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_create_msiconfig() {
+        let config = MsiConfig::new();
+        config.irqfd.write(1).unwrap();
+    }
+
+    #[test]
+    fn test_new_msi_routing_single() {
+        let test_gsi = 4;
+        let msi_source_config = MsiIrqSourceConfig {
+            high_addr: 0x1234,
+            low_addr: 0x5678,
+            data: 0x9876,
+        };
+        let entry = new_msi_routing_entry(test_gsi, &msi_source_config);
+        assert_eq!(entry.gsi, test_gsi);
+        assert_eq!(entry.type_, KVM_IRQ_ROUTING_MSI);
+        unsafe {
+            assert_eq!(entry.u.msi.address_hi, msi_source_config.high_addr);
+            assert_eq!(entry.u.msi.address_lo, msi_source_config.low_addr);
+            assert_eq!(entry.u.msi.data, msi_source_config.data);
+        }
+    }
+
+    #[cfg(all(
+        feature = "legacy_irq",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
+    #[test]
+    fn test_new_msi_routing_multi() {
+        let mut msi_fds = Vec::with_capacity(16);
+        for _ in 0..16 {
+            msi_fds.push(InterruptSourceConfig::MsiIrq(MsiIrqSourceConfig {
+                high_addr: 0x1234,
+                low_addr: 0x5678,
+                data: 0x9876,
+            }));
+        }
+        let mut legacy_fds = Vec::with_capacity(16);
+        for _ in 0..16 {
+            legacy_fds.push(InterruptSourceConfig::LegacyIrq(LegacyIrqSourceConfig {}));
+        }
+
+        let base = 0;
+        let entrys = create_msi_routing_entries(0, &msi_fds).unwrap();
+
+        for (i, entry) in entrys.iter().enumerate() {
+            assert_eq!(entry.gsi, (base + i) as u32);
+            assert_eq!(entry.type_, KVM_IRQ_ROUTING_MSI);
+            if let InterruptSourceConfig::MsiIrq(config) = &msi_fds[i] {
+                unsafe {
+                    assert_eq!(entry.u.msi.address_hi, config.high_addr);
+                    assert_eq!(entry.u.msi.address_lo, config.low_addr);
+                    assert_eq!(entry.u.msi.data, config.data);
+                }
+            }
+        }
+
+        assert!(create_msi_routing_entries(0, &legacy_fds).is_err());
+        assert!(create_msi_routing_entries(!0, &msi_fds).is_err());
+    }
+}
