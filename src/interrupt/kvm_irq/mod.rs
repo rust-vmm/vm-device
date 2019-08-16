@@ -275,3 +275,157 @@ impl KvmIrqRouting {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use kvm_ioctls::{DeviceFd, Kvm, VmFd};
+    use std::path::Path;
+
+    const VFIO_PCI_MSI_IRQ_INDEX: u32 = 1;
+
+    fn create_vm_fd() -> VmFd {
+        let kvm = Kvm::new().unwrap();
+        kvm.create_vm().unwrap()
+    }
+
+    fn create_irq_group(
+        manager: Arc<KvmIrqManager>,
+        vmfd: Arc<VmFd>,
+    ) -> Arc<dyn InterruptSourceGroup> {
+        let base = 0;
+        let count = 1;
+
+        manager
+            .create_group(InterruptSourceType::LegacyIrq, base, count)
+            .unwrap()
+    }
+
+    fn create_msi_group(
+        manager: Arc<KvmIrqManager>,
+        vmfd: Arc<VmFd>,
+    ) -> Arc<dyn InterruptSourceGroup> {
+        let base = 168;
+        let count = 32;
+
+        manager
+            .create_group(InterruptSourceType::MsiIrq, base, count)
+            .unwrap()
+    }
+
+    const MASTER_PIC: usize = 7;
+    const SLAVE_PIC: usize = 8;
+    const IOAPIC: usize = 23;
+
+    #[test]
+    fn test_create_kvmirqmanager() {
+        let vmfd = Arc::new(create_vm_fd());
+        let manager = KvmIrqManager::new(vmfd.clone());
+        assert!(vmfd.create_irq_chip().is_ok());
+        assert!(manager.initialize().is_ok());
+    }
+
+    #[test]
+    fn test_kvmirqmanager_opt() {
+        let vmfd = Arc::new(create_vm_fd());
+        assert!(vmfd.create_irq_chip().is_ok());
+        let manager = Arc::new(KvmIrqManager::new(vmfd.clone()));
+        assert!(manager.initialize().is_ok());
+        //irq
+        let group = create_irq_group(manager.clone(), vmfd.clone());
+        let tmp = group.clone();
+        assert!(manager.destroy_group(group).is_ok());
+        //msi
+        let group = create_msi_group(manager.clone(), vmfd.clone());
+        let tmp = group.clone();
+        assert!(manager.destroy_group(group).is_ok());
+    }
+
+    #[test]
+    fn test_irqrouting_initialize_legacy() {
+        let vmfd = Arc::new(create_vm_fd());
+        let routing = KvmIrqRouting::new(vmfd.clone());
+        assert!(routing.initialize().is_err());
+        assert!(vmfd.create_irq_chip().is_ok());
+        assert!(routing.initialize().is_ok());
+        let routes = &routing.routes.lock().unwrap();
+        assert_eq!(routes.len(), MASTER_PIC + SLAVE_PIC + IOAPIC);
+    }
+
+    #[test]
+    fn test_routing_opt() {
+        // pub(super) fn modify(&self, entry: &kvm_irq_routing_entry) -> Result<()> {
+        let vmfd = Arc::new(create_vm_fd());
+        let routing = KvmIrqRouting::new(vmfd.clone());
+        assert!(routing.initialize().is_err());
+        assert!(vmfd.create_irq_chip().is_ok());
+        assert!(routing.initialize().is_ok());
+
+        let mut entry = kvm_irq_routing_entry {
+            gsi: 8,
+            type_: KVM_IRQ_ROUTING_IRQCHIP,
+            ..Default::default()
+        };
+
+        // Safe because we are initializing all fields of the `irqchip` struct.
+        unsafe {
+            entry.u.irqchip.irqchip = 0;
+            entry.u.irqchip.pin = 3;
+        }
+
+        let entrys = vec![entry.clone()];
+
+        assert!(routing.modify(&entry).is_err());
+        assert!(routing.add(&entrys).is_ok());
+        unsafe {
+            entry.u.irqchip.pin = 4;
+        }
+        assert!(routing.modify(&entry).is_ok());
+        assert!(routing.remove(&entrys).is_ok());
+        assert!(routing.modify(&entry).is_err());
+    }
+
+    #[test]
+    fn test_routing_commit() {
+        let vmfd = Arc::new(create_vm_fd());
+        let routing = KvmIrqRouting::new(vmfd.clone());
+
+        assert!(routing.initialize().is_err());
+        assert!(vmfd.create_irq_chip().is_ok());
+        assert!(routing.initialize().is_ok());
+
+        let mut entry = kvm_irq_routing_entry {
+            gsi: 8,
+            type_: KVM_IRQ_ROUTING_IRQCHIP,
+            ..Default::default()
+        };
+        unsafe {
+            entry.u.irqchip.irqchip = 0;
+            entry.u.irqchip.pin = 3;
+        }
+
+        routing
+            .routes
+            .lock()
+            .unwrap()
+            .insert(hash_key(&entry), entry);
+        let routes = routing.routes.lock().unwrap();
+        assert!(routing.commit(&routes).is_ok());
+    }
+
+    #[test]
+    fn test_has_key() {
+        let gsi = 4;
+        let mut entry = kvm_irq_routing_entry {
+            gsi,
+            type_: KVM_IRQ_ROUTING_IRQCHIP,
+            ..Default::default()
+        };
+        // Safe because we are initializing all fields of the `irqchip` struct.
+        unsafe {
+            entry.u.irqchip.irqchip = KVM_IRQCHIP_PIC_MASTER;
+            entry.u.irqchip.pin = gsi;
+        }
+        assert_eq!(hash_key(&entry), 0x0001_0000_0004);
+    }
+}

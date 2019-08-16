@@ -145,3 +145,70 @@ impl InterruptSourceGroup for MsiIrq {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use kvm_ioctls::{Kvm, VmFd};
+
+    fn create_vm_fd() -> VmFd {
+        let kvm = Kvm::new().unwrap();
+        kvm.create_vm().unwrap()
+    }
+
+    #[test]
+    fn test_msi_interrupt_group() {
+        let vmfd = Arc::new(create_vm_fd());
+        assert!(vmfd.create_irq_chip().is_ok());
+
+        let rounting = Arc::new(KvmIrqRouting::new(vmfd.clone()));
+        assert!(rounting.initialize().is_ok());
+
+        let base = 168;
+        let count = 32;
+        let group = MsiIrq::new(base, count, vmfd.clone(), rounting.clone()).unwrap();
+        let mut msi_fds = Vec::with_capacity(count as usize);
+
+        match group.get_type() {
+            InterruptSourceType::MsiIrq => {}
+            _ => {
+                panic!();
+            }
+        }
+
+        for _ in 0..count {
+            let msi_source_config = MsiIrqSourceConfig {
+                high_addr: 0x1234,
+                low_addr: 0x5678,
+                data: 0x9876,
+            };
+            msi_fds.push(InterruptSourceConfig::MsiIrq(msi_source_config));
+        }
+
+        assert!(group.enable(&msi_fds).is_ok());
+        assert_eq!(group.len(), count);
+        assert_eq!(group.get_base(), base);
+
+        for i in 0..count {
+            let msi_source_config = MsiIrqSourceConfig {
+                high_addr: i + 0x1234,
+                low_addr: i + 0x5678,
+                data: i + 0x9876,
+            };
+            assert!(group.get_irqfd(i).unwrap().write(1).is_ok());
+            assert!(group.trigger(i, 0x168).is_err());
+            assert!(group.trigger(i, 0).is_ok());
+            assert!(group.ack(i, 0x168).is_err());
+            assert!(group.ack(i, 0).is_ok());
+            assert!(group
+                .modify(0, &InterruptSourceConfig::MsiIrq(msi_source_config))
+                .is_ok());
+        }
+        assert!(group.trigger(33, 0x168).is_err());
+        assert!(group.ack(33, 0x168).is_err());
+        assert!(group.disable().is_ok());
+
+        assert!(MsiIrq::new(base, 33, vmfd.clone(), rounting.clone()).is_err());
+        assert!(MsiIrq::new(1100, 1, vmfd.clone(), rounting.clone()).is_err());
+    }
+}
