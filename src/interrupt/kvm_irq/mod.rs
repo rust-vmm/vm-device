@@ -264,7 +264,7 @@ impl KvmIrqRouting {
         }
 
         // Build routings for the first IOAPIC
-        for i in 0..24 {
+        for i in 0..legacy_irq::MAX_LEGACY_IRQS {
             if i == 0 {
                 Self::add_legacy_entry(i, KVM_IRQCHIP_IOAPIC, 2, routes)?;
             } else if i != 2 {

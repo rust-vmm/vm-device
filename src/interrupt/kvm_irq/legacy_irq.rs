@@ -10,6 +10,9 @@ use super::*;
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Maximum number of legacy interrupts supported.
+pub const MAX_LEGACY_IRQS: u32 = 24;
+
 pub(super) struct LegacyIrq {
     base: u32,
     vmfd: Arc<VmFd>,
@@ -28,6 +31,11 @@ impl LegacyIrq {
         if count != 1 {
             return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
         }
+
+        if base >= MAX_LEGACY_IRQS {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
         Ok(Arc::new(LegacyIrq {
             base,
             vmfd,
