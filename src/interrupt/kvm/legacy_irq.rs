@@ -11,6 +11,9 @@ use super::*;
 use kvm_bindings::{KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Maximum number of legacy interrupts supported.
+pub const MAX_LEGACY_IRQS: u32 = 24;
+
 pub(super) struct LegacyIrq {
     base: u32,
     vmfd: Arc<VmFd>,
@@ -29,6 +32,11 @@ impl LegacyIrq {
         if count != 1 {
             return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
         }
+
+        if base >= MAX_LEGACY_IRQS {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
         Ok(LegacyIrq {
             base,
             vmfd,
@@ -77,7 +85,7 @@ impl LegacyIrq {
         }
 
         // Build routings for the first IOAPIC
-        for i in 0..24 {
+        for i in 0..MAX_LEGACY_IRQS {
             if i == 0 {
                 Self::add_legacy_entry(i, KVM_IRQCHIP_IOAPIC, 2, routes)?;
             } else if i != 2 {
