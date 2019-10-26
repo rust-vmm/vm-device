@@ -20,6 +20,9 @@ mod legacy_irq;
 #[cfg(feature = "legacy_irq")]
 use self::legacy_irq::LegacyIrq;
 
+#[cfg(feature = "msi_irq")]
+mod msi_irq;
+
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
 /// The KVM framework provides methods to inject interrupts into the target virtual machines,
