@@ -3,6 +3,7 @@
 
 //! rust-vmm device model.
 
+pub mod device_manager;
 pub mod resources;
 
 /// IO Addresses.
