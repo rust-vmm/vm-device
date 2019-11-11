@@ -20,14 +20,16 @@ pub enum IoAddress {
 }
 
 /// Device IO trait.
-/// A device supporting memory based I/O should implement this trait, then
-/// register itself against the different IO type ranges it handles.
-/// The VMM will then dispatch IO (PIO or MMIO) VM exits by calling into the
-/// registered devices read or write method from this trait.
+/// A device supporting memory based I/O should implement this trait. For
+/// device that has one or several IO (PIO or MMIO) address space, it
+/// registers itself against the different IO type ranges it handles with
+/// a unique token to distinguish different windows. The VMM will then
+/// dispatch IO (PIO or MMIO) VM exits by calling into the registered devices
+/// read or write method from this trait.
 pub trait DeviceIo: Send {
-    /// Read from the guest physical address `addr` to `data`.
-    fn read(&mut self, addr: IoAddress, data: &mut [u8]);
+    /// Read from `offset` of IO address space specified by `token` to `data`.
+    fn read(&mut self, offset: IoAddress, token: usize, data: &mut [u8]);
 
-    /// Write `data` to the guest physical address `addr`.
-    fn write(&mut self, addr: IoAddress, data: &[u8]);
+    /// Write `data` to `offset` of IO address space specified by `token`.
+    fn write(&mut self, offset: IoAddress, token: usize, data: &[u8]);
 }
