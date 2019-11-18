@@ -4,17 +4,20 @@
 //! rust-vmm device model.
 
 extern crate vm_memory;
+extern crate vmm_sys_util;
+#[macro_use]
+extern crate log;
 
 use vm_memory::GuestAddress;
 
 pub mod resources;
+pub mod serial;
 
 /// IO Addresses.
 #[derive(Debug, Copy, Clone)]
 pub enum IoAddress {
     /// Port I/O address.
     Pio(u16),
-
     /// Memory mapped I/O address.
     Mmio(GuestAddress),
 }

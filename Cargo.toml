@@ -6,4 +6,6 @@ repository = "https://github.com/rust-vmm/vm-device"
 license = "Apache-2.0"
 
 [dependencies]
+log = "0.4"
 vm-memory = { git = "https://github.com/rust-vmm/vm-memory" }
+vmm-sys-util = ">0.1"
