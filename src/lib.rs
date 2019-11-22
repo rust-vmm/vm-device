@@ -3,8 +3,30 @@
 
 //! rust-vmm device model.
 
+use std::cmp::{Ord, Ordering, PartialOrd};
+
 pub mod device_manager;
 pub mod resources;
+
+// IO Size.
+#[derive(Debug, Copy, Clone)]
+enum IoSize {
+    // Port I/O size.
+    Pio(u16),
+
+    // Memory mapped I/O size.
+    Mmio(u64),
+}
+
+impl IoSize {
+    // Get the raw value as u64 to make operation simple.
+    fn raw_value(&self) -> u64 {
+        match *self {
+            IoSize::Pio(p) => u64::from(p),
+            IoSize::Mmio(m) => m,
+        }
+    }
+}
 
 /// IO Addresses.
 #[derive(Debug, Copy, Clone)]
@@ -14,6 +36,36 @@ pub enum IoAddress {
 
     /// Memory mapped I/O address.
     Mmio(u64),
+}
+
+impl IoAddress {
+    // Get the raw value of IO Address to make operation simple.
+    fn raw_value(&self) -> u64 {
+        match *self {
+            IoAddress::Pio(p) => u64::from(p),
+            IoAddress::Mmio(m) => m,
+        }
+    }
+}
+
+impl Eq for IoAddress {}
+
+impl PartialEq for IoAddress {
+    fn eq(&self, other: &IoAddress) -> bool {
+        self.raw_value() == other.raw_value()
+    }
+}
+
+impl Ord for IoAddress {
+    fn cmp(&self, other: &IoAddress) -> Ordering {
+        self.raw_value().cmp(&other.raw_value())
+    }
+}
+
+impl PartialOrd for IoAddress {
+    fn partial_cmp(&self, other: &IoAddress) -> Option<Ordering> {
+        self.raw_value().partial_cmp(&other.raw_value())
+    }
 }
 
 /// Device IO trait.
