@@ -7,6 +7,7 @@ extern crate vm_memory;
 
 use vm_memory::GuestAddress;
 
+pub mod interrupt;
 pub mod resources;
 
 /// IO Addresses.
