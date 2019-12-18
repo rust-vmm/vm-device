@@ -401,7 +401,7 @@ mod tests {
             assert_eq!(align, 0x1000);
             assert_eq!(size, 0x2000);
         } else {
-            panic!("Pio resource constraint is invalid.");
+            panic!("Mmio resource constraint is invalid.");
         }
 
         if let ResourceConstraint::MmioAddress { range, align, size } =
@@ -411,7 +411,24 @@ mod tests {
             assert_eq!(align, 0x2000);
             assert_eq!(size, 0x2000);
         } else {
-            panic!("Pio resource constraint is invalid.");
+            panic!("Mmio resource constraint is invalid.");
+        }
+
+        if let ResourceConstraint::LegacyIrq { irq } =
+            ResourceConstraint::new_legacy_irq(Some(0x123))
+        {
+            assert_eq!(irq, Some(0x123));
+        } else {
+            panic!("IRQ resource constraint is invalid.");
+        }
+
+        if let ResourceConstraint::KvmMemSlot { slot, size } =
+            ResourceConstraint::new_kvm_mem_slot(0x1000, Some(0x2000))
+        {
+            assert_eq!(slot, Some(0x2000));
+            assert_eq!(size, 0x1000);
+        } else {
+            panic!("KVM slot resource constraint is invalid.");
         }
     }
 }
