@@ -21,9 +21,11 @@ pub enum IoAddress {
 /// The VMM will then dispatch IO (PIO or MMIO) VM exits by calling into the
 /// registered devices read or write method from this trait.
 pub trait DeviceIo: Send {
-    /// Read from the guest physical address `addr` to `data`.
-    fn read(&mut self, addr: IoAddress, data: &mut [u8]);
+    /// Read from guest physical address `base + offset` of the registered
+    /// device to `data`.
+    fn read(&mut self, base: IoAddress, offset: IoAddress, data: &mut [u8]);
 
-    /// Write `data` to the guest physical address `addr`.
-    fn write(&mut self, addr: IoAddress, data: &[u8]);
+    /// Write `data` to the guest physical address `base + offset` of the
+    /// registered device.
+    fn write(&mut self, base: IoAddress, offset: IoAddress, data: &[u8]);
 }
