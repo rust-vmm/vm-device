@@ -3,10 +3,6 @@
 
 //! rust-vmm device model.
 
-extern crate vm_memory;
-
-use vm_memory::GuestAddress;
-
 pub mod resources;
 
 /// IO Addresses.
@@ -16,7 +12,7 @@ pub enum IoAddress {
     Pio(u16),
 
     /// Memory mapped I/O address.
-    Mmio(GuestAddress),
+    Mmio(u64),
 }
 
 /// Device IO trait.
