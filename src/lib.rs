@@ -20,11 +20,13 @@ pub enum IoAddress {
 /// register itself against the different IO type ranges it handles.
 /// The VMM will then dispatch IO (PIO or MMIO) VM exits by calling into the
 /// registered devices read or write method from this trait.
+/// The DeviceIo trait adopts the interior mutability pattern
+/// so we can get a real multiple threads handling.
 pub trait DeviceIo: Send {
     /// Read from the guest physical address `base`, starting at `offset`.
     /// Result is placed in `data`.
-    fn read(&mut self, base: IoAddress, offset: IoAddress, data: &mut [u8]);
+    fn read(&self, base: IoAddress, offset: IoAddress, data: &mut [u8]);
 
     /// Write `data` to the guest physical address `base`, starting from `offset`.
-    fn write(&mut self, base: IoAddress, offset: IoAddress, data: &[u8]);
+    fn write(&self, base: IoAddress, offset: IoAddress, data: &[u8]);
 }
