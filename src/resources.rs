@@ -12,6 +12,7 @@
 //! 5) the VMM registers the new device onto corresponding device managers according the allocated
 //!    resources.
 
+use std::ops::Deref;
 use std::{u16, u32, u64};
 
 /// Enumeration describing a device's resource constraints.
@@ -245,6 +246,14 @@ impl DeviceResources {
     }
 }
 
+impl Deref for DeviceResources {
+    type Target = [Resource];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,5 +439,15 @@ mod tests {
         } else {
             panic!("KVM slot resource constraint is invalid.");
         }
+    }
+
+    #[test]
+    fn test_resources_deref() {
+        let resources = get_device_resource();
+        let mut count = 0;
+        for _res in resources.iter() {
+            count += 1;
+        }
+        assert_eq!(count, resources.0.len());
     }
 }
