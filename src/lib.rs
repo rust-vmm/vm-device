@@ -80,7 +80,7 @@ impl PartialOrd for IoAddress {
 /// real concurrent multiple threads handling. For device backend drivers not
 /// focusing on high performance, they may use the Mutex<T: DeviceIoMut>
 /// adapter to simplify implementation.
-pub trait DeviceIo: Send {
+pub trait DeviceIo: Send + Sync {
     /// Read from the guest physical address `base`, starting at `offset`.
     /// Result is placed in `data`.
     fn read(&self, base: IoAddress, offset: IoAddress, data: &mut [u8]);
