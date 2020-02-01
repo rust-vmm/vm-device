@@ -74,7 +74,7 @@ impl PartialOrd for IoRange {
 }
 
 /// System IO manager serving for all devices management and VM exit handling.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct IoManager {
     /// Range mapping for VM exit pio operations.
     pio_bus: BTreeMap<IoRange, Arc<dyn DeviceIo>>,
@@ -274,6 +274,45 @@ mod tests {
             let mut config = self.config.lock().expect("failed to acquire lock");
             *config = u32::from(data[0]) & 0xff;
         }
+    }
+
+    #[test]
+    fn test_clone_io_manager() {
+        let mut io_mgr = IoManager::new();
+        let dummy = DummyDevice::new(0);
+        let dum = Arc::new(dummy);
+
+        let mut resource: Vec<Resource> = Vec::new();
+        let mmio = Resource::MmioAddressRange {
+            base: MMIO_ADDRESS_BASE,
+            size: MMIO_ADDRESS_SIZE,
+        };
+        let pio = Resource::PioAddressRange {
+            base: PIO_ADDRESS_BASE,
+            size: PIO_ADDRESS_SIZE,
+        };
+        let irq = Resource::LegacyIrq(LEGACY_IRQ);
+
+        resource.push(mmio);
+        resource.push(pio);
+        resource.push(irq);
+        assert!(io_mgr.register_device_io(dum.clone(), &resource).is_ok());
+
+        let io_mgr2 = io_mgr.clone();
+        assert_eq!(io_mgr2.pio_bus.len(), 1);
+        assert_eq!(io_mgr2.mmio_bus.len(), 1);
+
+        let (dev, addr) = io_mgr2
+            .get_device(IoAddress::Mmio(MMIO_ADDRESS_BASE + 1))
+            .unwrap();
+        assert_eq!(Arc::strong_count(dev), 5);
+        assert_eq!(addr, IoAddress::Mmio(MMIO_ADDRESS_BASE));
+
+        drop(io_mgr);
+        assert_eq!(Arc::strong_count(dev), 3);
+
+        drop(io_mgr2);
+        assert_eq!(Arc::strong_count(&dum), 1);
     }
 
     #[test]
