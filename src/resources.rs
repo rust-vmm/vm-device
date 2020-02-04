@@ -16,6 +16,7 @@ use std::ops::Deref;
 use std::{u16, u32, u64};
 
 /// Enumeration describing a device's resource constraints.
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ResourceConstraint {
     /// Constraint for an IO Port address range.
     PioAddress {
@@ -109,7 +110,7 @@ impl ResourceConstraint {
 }
 
 /// Type of Message Singaled Interrupt
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MsiIrqType {
     /// PCI MSI IRQ numbers.
     PciMsi,
@@ -121,7 +122,7 @@ pub enum MsiIrqType {
 
 /// Enumeration for device resources.
 #[allow(missing_docs)]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Resource {
     /// IO Port address range.
     PioAddressRange { base: u16, size: u16 },
@@ -142,7 +143,7 @@ pub enum Resource {
 }
 
 /// Newtype to store a set of device resources.
-#[derive(Default, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct DeviceResources(Vec<Resource>);
 
 impl DeviceResources {
@@ -278,12 +279,16 @@ mod tests {
             size: PIO_ADDRESS_SIZE,
         };
         let mut resource = DeviceResources::new();
-        resource.append(entry);
+        resource.append(entry.clone());
+        assert_eq!(entry, resource[0]);
+
         let entry = Resource::MmioAddressRange {
             base: MMIO_ADDRESS_BASE,
             size: MMIO_ADDRESS_SIZE,
         };
-        resource.append(entry);
+        resource.append(entry.clone());
+        assert_eq!(entry, resource[1]);
+
         let entry = Resource::LegacyIrq(LEGACY_IRQ);
         resource.append(entry);
         let entry = Resource::MsiIrq {
@@ -318,6 +323,25 @@ mod tests {
         assert!(
             resources.get_pio_address_ranges()[0].0 == PIO_ADDRESS_BASE
                 && resources.get_pio_address_ranges()[0].1 == PIO_ADDRESS_SIZE
+        );
+        assert_eq!(
+            resources[0],
+            Resource::PioAddressRange {
+                base: PIO_ADDRESS_BASE,
+                size: PIO_ADDRESS_SIZE,
+            }
+        );
+        assert_ne!(resources[0], resources[1]);
+
+        let resources2 = resources.clone();
+        assert_eq!(resources.len(), resources2.len());
+        drop(resources);
+        assert_eq!(
+            resources2[0],
+            Resource::PioAddressRange {
+                base: PIO_ADDRESS_BASE,
+                size: PIO_ADDRESS_SIZE,
+            }
         );
     }
 
@@ -383,6 +407,13 @@ mod tests {
 
     #[test]
     fn test_resource_constraint() {
+        let pio = ResourceConstraint::new_pio(2);
+        let pio2 = pio.clone();
+        let mmio = ResourceConstraint::new_mmio(0x1000);
+        assert_eq!(pio, pio2);
+        drop(pio2);
+        assert_ne!(pio, mmio);
+
         if let ResourceConstraint::PioAddress { range, align, size } =
             ResourceConstraint::new_pio(2)
         {
