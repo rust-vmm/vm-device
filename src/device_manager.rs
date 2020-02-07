@@ -31,9 +31,9 @@ pub enum Error {
 /// Simplify the `Result` type.
 pub type Result<T> = result::Result<T, Error>;
 
-// Structure describing an IO range.
+/// Structure describing an IO range.
 #[derive(Debug, Copy, Clone)]
-struct IoRange {
+pub struct IoRange {
     base: IoAddress,
     size: IoSize,
 }

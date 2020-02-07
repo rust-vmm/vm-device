@@ -9,13 +9,13 @@ use std::sync::Mutex;
 pub mod device_manager;
 pub mod resources;
 
-// IO Size.
+/// IO Size.
 #[derive(Debug, Copy, Clone)]
-enum IoSize {
-    // Port I/O size.
+pub enum IoSize {
+    /// Port I/O size.
     Pio(u16),
 
-    // Memory mapped I/O size.
+    /// Memory mapped I/O size.
     Mmio(u64),
 }
 
