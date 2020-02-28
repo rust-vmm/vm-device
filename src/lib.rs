@@ -3,9 +3,12 @@
 
 //! rust-vmm device model.
 
+extern crate vmm_sys_util;
+
 use std::cmp::{Ord, Ordering, PartialOrd};
 
 pub mod device_manager;
+pub mod interrupt;
 pub mod resources;
 
 // IO Size.
