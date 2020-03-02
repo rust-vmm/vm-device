@@ -6,3 +6,7 @@ repository = "https://github.com/rust-vmm/vm-device"
 license = "Apache-2.0"
 
 [dependencies]
+vmm-sys-util = "~0"
+
+[dev-dependencies]
+matches = ">=0"
