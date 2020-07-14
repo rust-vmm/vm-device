@@ -16,6 +16,7 @@ use crate::{DeviceIo, IoAddress, IoSize};
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
+use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::Arc;
 
@@ -27,6 +28,20 @@ pub enum Error {
     /// The device doesn't exist.
     NoDevice,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::DeviceOverlap => write!(
+                f,
+                "device_manager: device address conflicts with existing devices"
+            ),
+            Error::NoDevice => write!(f, "device_manager: no such device"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// Simplify the `Result` type.
 pub type Result<T> = result::Result<T, Error>;
@@ -238,6 +253,7 @@ impl IoManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use std::sync::Mutex;
 
     const PIO_ADDRESS_SIZE: u16 = 4;
@@ -354,5 +370,20 @@ mod tests {
         assert!(io_mgr
             .pio_write(PIO_ADDRESS_BASE + PIO_ADDRESS_SIZE, &data)
             .is_err());
+    }
+
+    #[test]
+    fn test_error_code() {
+        let err = super::Error::DeviceOverlap;
+
+        assert!(err.source().is_none());
+        assert_eq!(
+            format!("{}", err),
+            "device_manager: device address conflicts with existing devices"
+        );
+
+        let err = super::Error::NoDevice;
+        assert!(err.source().is_none());
+        assert_eq!(format!("{:#?}", err), "NoDevice");
     }
 }
