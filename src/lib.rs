@@ -5,6 +5,7 @@
 
 use std::cmp::{Ord, Ordering, PartialOrd};
 
+pub mod bus;
 pub mod device_manager;
 pub mod resources;
 
