@@ -11,22 +11,18 @@
 //! vm_allocator to allocate the resources, ask vm_device to register the
 //! devices IO ranges, and finally set resources to virtual device.
 
-use crate::resources::Resource;
-use crate::{DeviceIo, IoAddress, IoSize};
-
-use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
-use std::collections::btree_map::BTreeMap;
-use std::fmt::{Display, Formatter};
-use std::result;
+use std::result::Result;
 use std::sync::Arc;
+
+use crate::bus::{self, BusManager, MmioAddress, MmioBus, MmioRange, PioAddress, PioBus, PioRange};
+use crate::resources::Resource;
+use crate::{DeviceMmio, DevicePio};
 
 /// Error type for `IoManager` usage.
 #[derive(Debug)]
 pub enum Error {
-    /// The inserting device overlaps with a current device.
-    DeviceOverlap,
-    /// The device doesn't exist.
-    NoDevice,
+    /// Error during bus operation.
+    Bus(bus::Error),
 }
 
 impl Display for Error {
@@ -46,55 +42,153 @@ impl std::error::Error for Error {}
 /// Simplify the `Result` type.
 pub type Result<T> = result::Result<T, Error>;
 
-// Structure describing an IO range.
-#[derive(Debug, Copy, Clone)]
-struct IoRange {
-    base: IoAddress,
-    size: IoSize,
+/// Represents an object that provides PIO manager operations.
+pub trait PioManager {
+    /// Type of the objects that can be registered with this `PioManager`.
+    type D: DevicePio;
+
+    /// Return a reference to the device registered at `addr`, together with the associated
+    /// range, if available.
+    fn pio_device(&self, addr: PioAddress) -> Option<(&PioRange, &Self::D)>;
+
+    /// Dispatch a read operation to the device registered at `addr`.
+    fn pio_read(&self, addr: PioAddress, data: &mut [u8]) -> Result<(), bus::Error>;
+
+    /// Dispatch a write operation to the device registered at `addr`.
+    fn pio_write(&self, addr: PioAddress, data: &[u8]) -> Result<(), bus::Error>;
+
+    /// Register the provided device with the specified range.
+    fn register_pio(&mut self, range: PioRange, device: Self::D) -> Result<(), bus::Error>;
+
+    /// Unregister the device currently registered at `addr` together with the
+    /// associated range.
+    fn unregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)>;
 }
 
-impl IoRange {
-    fn new_pio_range(base: u16, size: u16) -> Self {
-        IoRange {
-            base: IoAddress::Pio(base),
-            size: IoSize::Pio(size),
-        }
+// This automatically provides a `PioManager` implementation for types that already implement
+// `BusManager<PioAddress>` if their inner associated type implements `DevicePio` as well.
+impl<T> PioManager for T
+where
+    T: BusManager<PioAddress>,
+    T::D: DevicePio,
+{
+    type D = <Self as BusManager<PioAddress>>::D;
+
+    fn pio_device(&self, addr: PioAddress) -> Option<(&PioRange, &Self::D)> {
+        self.bus().device(addr)
     }
-    fn new_mmio_range(base: u64, size: u64) -> Self {
-        IoRange {
-            base: IoAddress::Mmio(base),
-            size: IoSize::Mmio(size),
-        }
+
+    fn pio_read(&self, addr: PioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
+        self.bus()
+            .check_access(addr, data.len())
+            .map(|(range, device)| device.pio_read(range.base(), addr - range.base(), data))
+    }
+
+    fn pio_write(&self, addr: PioAddress, data: &[u8]) -> Result<(), bus::Error> {
+        self.bus()
+            .check_access(addr, data.len())
+            .map(|(range, device)| device.pio_write(range.base(), addr - range.base(), data))
+    }
+
+    fn register_pio(&mut self, range: PioRange, device: Self::D) -> Result<(), bus::Error> {
+        self.bus_mut().register(range, device)
+    }
+
+    fn unregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)> {
+        self.bus_mut().unregister(addr)
     }
 }
 
-impl Eq for IoRange {}
+/// Represents an object that provides MMIO manager operations.
+pub trait MmioManager {
+    /// Type of the objects that can be registered with this `MmioManager`.
+    type D: DeviceMmio;
 
-impl PartialEq for IoRange {
-    fn eq(&self, other: &IoRange) -> bool {
-        self.base == other.base
-    }
+    /// Return a reference to the device registered at `addr`, together with the associated
+    /// range, if available.
+    fn mmio_device(&self, addr: MmioAddress) -> Option<(&MmioRange, &Self::D)>;
+
+    /// Dispatch a read operation to the device registered at `addr`.
+    fn mmio_read(&self, addr: MmioAddress, data: &mut [u8]) -> Result<(), bus::Error>;
+
+    /// Dispatch a write operation to the device registered at `addr`.
+    fn mmio_write(&self, addr: MmioAddress, data: &[u8]) -> Result<(), bus::Error>;
+
+    /// Register the provided device with the specified range.
+    fn register_mmio(&mut self, range: MmioRange, device: Self::D) -> Result<(), bus::Error>;
+
+    /// Unregister the device currently registered at `addr` together with the
+    /// associated range.
+    fn unregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)>;
 }
 
-impl Ord for IoRange {
-    fn cmp(&self, other: &IoRange) -> Ordering {
-        self.base.cmp(&other.base)
-    }
-}
+// This automatically provides a `MmioManager` implementation for types that already implement
+// `BusManager<MmioAddress>` if their inner associated type implements `DeviceMmio` as well.
+impl<T> MmioManager for T
+where
+    T: BusManager<MmioAddress>,
+    T::D: DeviceMmio,
+{
+    type D = <Self as BusManager<MmioAddress>>::D;
 
-impl PartialOrd for IoRange {
-    fn partial_cmp(&self, other: &IoRange) -> Option<Ordering> {
-        self.base.partial_cmp(&other.base)
+    fn mmio_device(&self, addr: MmioAddress) -> Option<(&MmioRange, &Self::D)> {
+        self.bus().device(addr)
+    }
+
+    fn mmio_read(&self, addr: MmioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
+        self.bus()
+            .check_access(addr, data.len())
+            .map(|(range, device)| device.mmio_read(range.base(), addr - range.base(), data))
+    }
+
+    fn mmio_write(&self, addr: MmioAddress, data: &[u8]) -> Result<(), bus::Error> {
+        self.bus()
+            .check_access(addr, data.len())
+            .map(|(range, device)| device.mmio_write(range.base(), addr - range.base(), data))
+    }
+
+    fn register_mmio(&mut self, range: MmioRange, device: Self::D) -> Result<(), bus::Error> {
+        self.bus_mut().register(range, device)
+    }
+
+    fn unregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)> {
+        self.bus_mut().unregister(addr)
     }
 }
 
 /// System IO manager serving for all devices management and VM exit handling.
 #[derive(Default)]
 pub struct IoManager {
-    /// Range mapping for VM exit pio operations.
-    pio_bus: BTreeMap<IoRange, Arc<dyn DeviceIo>>,
-    /// Range mapping for VM exit mmio operations.
-    mmio_bus: BTreeMap<IoRange, Arc<dyn DeviceIo>>,
+    // Range mapping for VM exit pio operations.
+    pio_bus: PioBus<Arc<dyn DevicePio>>,
+    // Range mapping for VM exit mmio operations.
+    mmio_bus: MmioBus<Arc<dyn DeviceMmio>>,
+}
+
+// Enables the automatic implementation of `PioManager` for `IoManager`.
+impl BusManager<PioAddress> for IoManager {
+    type D = Arc<dyn DevicePio>;
+
+    fn bus(&self) -> &PioBus<Arc<dyn DevicePio>> {
+        &self.pio_bus
+    }
+
+    fn bus_mut(&mut self) -> &mut PioBus<Arc<dyn DevicePio>> {
+        &mut self.pio_bus
+    }
+}
+
+// Enables the automatic implementation of `MmioManager` for `IoManager`.
+impl BusManager<MmioAddress> for IoManager {
+    type D = Arc<dyn DeviceMmio>;
+
+    fn bus(&self) -> &MmioBus<Arc<dyn DeviceMmio>> {
+        &self.mmio_bus
+    }
+
+    fn bus_mut(&mut self) -> &mut MmioBus<Arc<dyn DeviceMmio>> {
+        &mut self.mmio_bus
+    }
 }
 
 impl IoManager {
@@ -102,7 +196,8 @@ impl IoManager {
     pub fn new() -> Self {
         IoManager::default()
     }
-    /// Register a new device IO with its allocated resources.
+
+    /// Register a new MMIO device with its allocated resources.
     /// VMM is responsible for providing the allocated resources to virtual device.
     ///
     /// # Arguments
@@ -110,40 +205,21 @@ impl IoManager {
     /// * `device`: device instance object to be registered
     /// * `resources`: resources that this device owns, might include
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
-    pub fn register_device_io(
+    pub fn register_mmio_resources(
         &mut self,
-        device: Arc<dyn DeviceIo>,
+        device: Arc<dyn DeviceMmio>,
         resources: &[Resource],
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // Register and mark device resources
         // The resources addresses being registered are sucessfully allocated before.
-        for (idx, res) in resources.iter().enumerate() {
+        for res in resources.iter() {
             match *res {
-                Resource::PioAddressRange { base, size } => {
-                    if self
-                        .pio_bus
-                        .insert(IoRange::new_pio_range(base, size), device.clone())
-                        .is_some()
-                    {
-                        // Unregister registered resources.
-                        self.unregister_device_io(&resources[0..idx])
-                            .expect("failed to unregister devices");
-
-                        return Err(Error::DeviceOverlap);
-                    }
-                }
                 Resource::MmioAddressRange { base, size } => {
-                    if self
-                        .mmio_bus
-                        .insert(IoRange::new_mmio_range(base, size), device.clone())
-                        .is_some()
-                    {
-                        // Unregister registered resources.
-                        self.unregister_device_io(&resources[0..idx])
-                            .expect("failed to unregister devices");
-
-                        return Err(Error::DeviceOverlap);
-                    }
+                    self.register_mmio(
+                        MmioRange::new(MmioAddress(base), size).unwrap(),
+                        device.clone(),
+                    )
+                    .map_err(Error::Bus)?;
                 }
                 _ => continue,
             }
@@ -151,109 +227,88 @@ impl IoManager {
         Ok(())
     }
 
+    /// Register a new PIO device with its allocated resources.
+    /// VMM is responsible for providing the allocated resources to virtual device.
+    ///
+    /// # Arguments
+    ///
+    /// * `device`: device instance object to be registered
+    /// * `resources`: resources that this device owns, might include
+    ///                port I/O and memory-mapped I/O ranges, irq number, etc.
+    pub fn register_pio_resources(
+        &mut self,
+        device: Arc<dyn DevicePio>,
+        resources: &[Resource],
+    ) -> Result<(), Error> {
+        // Register and mark device resources
+        // The resources addresses being registered are sucessfully allocated before.
+        for res in resources.iter() {
+            match *res {
+                Resource::PioAddressRange { base, size } => {
+                    self.register_pio(
+                        PioRange::new(PioAddress(base), size).unwrap(),
+                        device.clone(),
+                    )
+                    .map_err(Error::Bus)?;
+                }
+                _ => continue,
+            }
+        }
+        Ok(())
+    }
+
+    /// Register a new MMIO + PIO device with its allocated resources.
+    /// VMM is responsible for providing the allocated resources to virtual device.
+    ///
+    /// # Arguments
+    ///
+    /// * `device`: device instance object to be registered
+    /// * `resources`: resources that this device owns, might include
+    ///                port I/O and memory-mapped I/O ranges, irq number, etc.
+    pub fn register_resources<T: DeviceMmio + DevicePio + 'static>(
+        &mut self,
+        device: Arc<T>,
+        resources: &[Resource],
+    ) -> Result<(), Error> {
+        self.register_mmio_resources(device.clone(), resources)?;
+        self.register_pio_resources(device, resources)
+    }
+
     /// Unregister a device from `IoManager`, e.g. users specified removing.
     /// VMM pre-fetches the resources e.g. dev.get_assigned_resources()
-    /// VMM is responsible for freeing the resources.
+    /// VMM is responsible for freeing the resources. Returns the number
+    /// of unregistered devices.
     ///
     /// # Arguments
     ///
     /// * `resources`: resources that this device owns, might include
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
-    pub fn unregister_device_io(&mut self, resources: &[Resource]) -> Result<()> {
+    pub fn unregister_resources(&mut self, resources: &[Resource]) -> usize {
+        let mut count = 0;
         for res in resources.iter() {
             match *res {
-                Resource::PioAddressRange { base, size } => {
-                    self.pio_bus.remove(&IoRange::new_pio_range(base, size));
+                Resource::PioAddressRange { base, .. } => {
+                    if self.unregister_pio(PioAddress(base)).is_some() {
+                        count += 1;
+                    }
                 }
-                Resource::MmioAddressRange { base, size } => {
-                    self.mmio_bus.remove(&IoRange::new_mmio_range(base, size));
+                Resource::MmioAddressRange { base, .. } => {
+                    if self.unregister_mmio(MmioAddress(base)).is_some() {
+                        count += 1;
+                    }
                 }
                 _ => continue,
             }
         }
-        Ok(())
-    }
-
-    fn get_entry(&self, addr: IoAddress) -> Option<(&IoRange, &Arc<dyn DeviceIo>)> {
-        match addr {
-            IoAddress::Pio(a) => self
-                .pio_bus
-                .range(..=&IoRange::new_pio_range(a, 0))
-                .nth_back(0),
-            IoAddress::Mmio(a) => self
-                .mmio_bus
-                .range(..=&IoRange::new_mmio_range(a, 0))
-                .nth_back(0),
-        }
-    }
-
-    // Return the Device mapped `addr` and the base address.
-    fn get_device(&self, addr: IoAddress) -> Option<(&Arc<dyn DeviceIo>, IoAddress)> {
-        if let Some((range, dev)) = self.get_entry(addr) {
-            if (addr.raw_value() - range.base.raw_value()) < range.size.raw_value() {
-                return Some((dev, range.base));
-            }
-        }
-        None
-    }
-
-    /// A helper function handling PIO read command during VM exit.
-    /// The virtual device itself provides mutable ability and thead-safe protection.
-    ///
-    /// Return error if failed to get the device.
-    pub fn pio_read(&self, addr: u16, data: &mut [u8]) -> Result<()> {
-        if let Some((device, base)) = self.get_device(IoAddress::Pio(addr)) {
-            device.read(base, IoAddress::Pio(addr - (base.raw_value() as u16)), data);
-            Ok(())
-        } else {
-            Err(Error::NoDevice)
-        }
-    }
-
-    /// A helper function handling PIO write command during VM exit.
-    /// The virtual device itself provides mutable ability and thead-safe protection.
-    ///
-    /// Return error if failed to get the device.
-    pub fn pio_write(&self, addr: u16, data: &[u8]) -> Result<()> {
-        if let Some((device, base)) = self.get_device(IoAddress::Pio(addr)) {
-            device.write(base, IoAddress::Pio(addr - (base.raw_value() as u16)), data);
-            Ok(())
-        } else {
-            Err(Error::NoDevice)
-        }
-    }
-
-    /// A helper function handling MMIO read command during VM exit.
-    /// The virtual device itself provides mutable ability and thead-safe protection.
-    ///
-    /// Return error if failed to get the device.
-    pub fn mmio_read(&self, addr: u64, data: &mut [u8]) -> Result<()> {
-        if let Some((device, base)) = self.get_device(IoAddress::Mmio(addr)) {
-            device.read(base, IoAddress::Mmio(addr - base.raw_value()), data);
-            Ok(())
-        } else {
-            Err(Error::NoDevice)
-        }
-    }
-
-    /// A helper function handling MMIO write command during VM exit.
-    /// The virtual device itself provides mutable ability and thead-safe protection.
-    ///
-    /// Return error if failed to get the device.
-    pub fn mmio_write(&self, addr: u64, data: &[u8]) -> Result<()> {
-        if let Some((device, base)) = self.get_device(IoAddress::Mmio(addr)) {
-            device.write(base, IoAddress::Mmio(addr - base.raw_value()), data);
-            Ok(())
-        } else {
-            Err(Error::NoDevice)
-        }
+        count
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::error::Error;
+
+    use bus::PioAddressValue;
     use std::sync::Mutex;
 
     const PIO_ADDRESS_SIZE: u16 = 4;
@@ -275,8 +330,8 @@ mod tests {
         }
     }
 
-    impl DeviceIo for DummyDevice {
-        fn read(&self, _base: IoAddress, _offset: IoAddress, data: &mut [u8]) {
+    impl DevicePio for DummyDevice {
+        fn pio_read(&self, _base: PioAddress, _offset: PioAddressValue, data: &mut [u8]) {
             if data.len() > 4 {
                 return;
             }
@@ -286,7 +341,24 @@ mod tests {
             }
         }
 
-        fn write(&self, _base: IoAddress, _offset: IoAddress, data: &[u8]) {
+        fn pio_write(&self, _base: PioAddress, _offset: PioAddressValue, data: &[u8]) {
+            let mut config = self.config.lock().expect("failed to acquire lock");
+            *config = u32::from(data[0]) & 0xff;
+        }
+    }
+
+    impl DeviceMmio for DummyDevice {
+        fn mmio_read(&self, _base: MmioAddress, _offset: u64, data: &mut [u8]) {
+            if data.len() > 4 {
+                return;
+            }
+            for (idx, iter) in data.iter_mut().enumerate() {
+                let config = self.config.lock().expect("failed to acquire lock");
+                *iter = (*config >> (idx * 8) & 0xff) as u8;
+            }
+        }
+
+        fn mmio_write(&self, _base: MmioAddress, _offset: u64, data: &[u8]) {
             let mut config = self.config.lock().expect("failed to acquire lock");
             *config = u32::from(data[0]) & 0xff;
         }
@@ -308,8 +380,10 @@ mod tests {
         resource.push(mmio);
         resource.push(irq);
 
-        assert!(io_mgr.register_device_io(dum.clone(), &resource).is_ok());
-        assert!(io_mgr.unregister_device_io(&resource).is_ok())
+        assert!(io_mgr
+            .register_mmio_resources(dum.clone(), &resource)
+            .is_ok());
+        assert_eq!(io_mgr.unregister_resources(&resource), 1);
     }
 
     #[test]
@@ -323,22 +397,31 @@ mod tests {
             size: MMIO_ADDRESS_SIZE,
         };
         resource.push(mmio);
-        assert!(io_mgr.register_device_io(dum.clone(), &resource).is_ok());
+        assert!(io_mgr
+            .register_mmio_resources(dum.clone(), &resource)
+            .is_ok());
 
         let mut data = [0; 4];
-        assert!(io_mgr.mmio_read(MMIO_ADDRESS_BASE, &mut data).is_ok());
+        assert!(io_mgr
+            .mmio_read(MmioAddress(MMIO_ADDRESS_BASE), &mut data)
+            .is_ok());
         assert_eq!(data, [0x34, 0x12, 0, 0]);
 
         assert!(io_mgr
-            .mmio_read(MMIO_ADDRESS_BASE + MMIO_ADDRESS_SIZE, &mut data)
+            .mmio_read(
+                MmioAddress(MMIO_ADDRESS_BASE + MMIO_ADDRESS_SIZE),
+                &mut data
+            )
             .is_err());
 
         data = [0; 4];
-        assert!(io_mgr.mmio_write(MMIO_ADDRESS_BASE, &data).is_ok());
+        assert!(io_mgr
+            .mmio_write(MmioAddress(MMIO_ADDRESS_BASE), &data)
+            .is_ok());
         assert_eq!(*dum.config.lock().unwrap(), 0);
 
         assert!(io_mgr
-            .mmio_write(MMIO_ADDRESS_BASE + MMIO_ADDRESS_SIZE, &data)
+            .mmio_write(MmioAddress(MMIO_ADDRESS_BASE + MMIO_ADDRESS_SIZE), &data)
             .is_err());
     }
 
@@ -353,22 +436,28 @@ mod tests {
             size: PIO_ADDRESS_SIZE,
         };
         resource.push(pio);
-        assert!(io_mgr.register_device_io(dum.clone(), &resource).is_ok());
+        assert!(io_mgr
+            .register_pio_resources(dum.clone(), &resource)
+            .is_ok());
 
         let mut data = [0; 4];
-        assert!(io_mgr.pio_read(PIO_ADDRESS_BASE, &mut data).is_ok());
+        assert!(io_mgr
+            .pio_read(PioAddress(PIO_ADDRESS_BASE), &mut data)
+            .is_ok());
         assert_eq!(data, [0x34, 0x12, 0, 0]);
 
         assert!(io_mgr
-            .pio_read(PIO_ADDRESS_BASE + PIO_ADDRESS_SIZE, &mut data)
+            .pio_read(PioAddress(PIO_ADDRESS_BASE + PIO_ADDRESS_SIZE), &mut data)
             .is_err());
 
         data = [0; 4];
-        assert!(io_mgr.pio_write(PIO_ADDRESS_BASE, &data).is_ok());
+        assert!(io_mgr
+            .pio_write(PioAddress(PIO_ADDRESS_BASE), &data)
+            .is_ok());
         assert_eq!(*dum.config.lock().unwrap(), 0);
 
         assert!(io_mgr
-            .pio_write(PIO_ADDRESS_BASE + PIO_ADDRESS_SIZE, &data)
+            .pio_write(PioAddress(PIO_ADDRESS_BASE + PIO_ADDRESS_SIZE), &data)
             .is_err());
     }
 

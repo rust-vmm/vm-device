@@ -3,84 +3,80 @@
 
 //! rust-vmm device model.
 
-use std::cmp::{Ord, Ordering, PartialOrd};
-
 pub mod bus;
 pub mod device_manager;
 pub mod resources;
 
-// IO Size.
-#[derive(Debug, Copy, Clone)]
-enum IoSize {
-    // Port I/O size.
-    Pio(u16),
+use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 
-    // Memory mapped I/O size.
-    Mmio(u64),
+use bus::{MmioAddress, PioAddress, PioAddressValue};
+
+pub trait DevicePio {
+    fn pio_read(&self, base: PioAddress, offset: PioAddressValue, data: &mut [u8]);
+    fn pio_write(&self, base: PioAddress, offset: PioAddressValue, data: &[u8]);
 }
 
-impl IoSize {
-    // Get the raw value as u64 to make operation simple.
-    fn raw_value(&self) -> u64 {
-        match *self {
-            IoSize::Pio(p) => u64::from(p),
-            IoSize::Mmio(m) => m,
-        }
+pub trait DeviceMmio {
+    fn mmio_read(&self, base: MmioAddress, offset: u64, data: &mut [u8]);
+    fn mmio_write(&self, base: MmioAddress, offset: u64, data: &[u8]);
+}
+
+// TODO: turn into actual doc comments.
+// These traits help with composite inner mutability (i.e. if we have a Mutex that holds a T
+// which implements `MutDevicePio`, then the Mutex can implement `DevicePio` based on its inner
+// mutability properties).
+
+pub trait MutDevicePio {
+    fn pio_read(&mut self, base: PioAddress, offset: PioAddressValue, data: &mut [u8]);
+    fn pio_write(&mut self, base: PioAddress, offset: PioAddressValue, data: &[u8]);
+}
+
+pub trait MutDeviceMmio {
+    fn mmio_read(&mut self, base: MmioAddress, offset: u64, data: &mut [u8]);
+    fn mmio_write(&mut self, base: MmioAddress, offset: u64, data: &[u8]);
+}
+
+// Blanket implementations for Arc<T>.
+
+impl<T: DeviceMmio + ?Sized> DeviceMmio for Arc<T> {
+    fn mmio_read(&self, base: MmioAddress, offset: u64, data: &mut [u8]) {
+        self.deref().mmio_read(base, offset, data);
+    }
+
+    fn mmio_write(&self, base: MmioAddress, offset: u64, data: &[u8]) {
+        self.deref().mmio_write(base, offset, data);
     }
 }
 
-/// IO Addresses.
-#[derive(Debug, Copy, Clone)]
-pub enum IoAddress {
-    /// Port I/O address.
-    Pio(u16),
+impl<T: DevicePio + ?Sized> DevicePio for Arc<T> {
+    fn pio_read(&self, base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
+        self.deref().pio_read(base, offset, data);
+    }
 
-    /// Memory mapped I/O address.
-    Mmio(u64),
-}
-
-impl IoAddress {
-    // Get the raw value of IO Address to make operation simple.
-    fn raw_value(&self) -> u64 {
-        match *self {
-            IoAddress::Pio(p) => u64::from(p),
-            IoAddress::Mmio(m) => m,
-        }
+    fn pio_write(&self, base: PioAddress, offset: PioAddressValue, data: &[u8]) {
+        self.deref().pio_write(base, offset, data);
     }
 }
 
-impl Eq for IoAddress {}
+// Blanket implementations for Mutex<T>.
 
-impl PartialEq for IoAddress {
-    fn eq(&self, other: &IoAddress) -> bool {
-        self.raw_value() == other.raw_value()
+impl<T: MutDeviceMmio + ?Sized> DeviceMmio for Mutex<T> {
+    fn mmio_read(&self, base: MmioAddress, offset: u64, data: &mut [u8]) {
+        self.lock().unwrap().mmio_read(base, offset, data)
+    }
+
+    fn mmio_write(&self, base: MmioAddress, offset: u64, data: &[u8]) {
+        self.lock().unwrap().mmio_write(base, offset, data)
     }
 }
 
-impl Ord for IoAddress {
-    fn cmp(&self, other: &IoAddress) -> Ordering {
-        self.raw_value().cmp(&other.raw_value())
+impl<T: MutDevicePio + ?Sized> DevicePio for Mutex<T> {
+    fn pio_read(&self, base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
+        self.lock().unwrap().pio_read(base, offset, data)
     }
-}
 
-impl PartialOrd for IoAddress {
-    fn partial_cmp(&self, other: &IoAddress) -> Option<Ordering> {
-        self.raw_value().partial_cmp(&other.raw_value())
+    fn pio_write(&self, base: PioAddress, offset: PioAddressValue, data: &[u8]) {
+        self.lock().unwrap().pio_write(base, offset, data)
     }
-}
-
-/// Device IO trait.
-/// A device supporting memory based I/O should implement this trait, then
-/// register itself against the different IO type ranges it handles.
-/// The VMM will then dispatch IO (PIO or MMIO) VM exits by calling into the
-/// registered devices read or write method from this trait.
-/// The DeviceIo trait adopts the interior mutability pattern
-/// so we can get a real multiple threads handling.
-pub trait DeviceIo: Send {
-    /// Read from the guest physical address `base`, starting at `offset`.
-    /// Result is placed in `data`.
-    fn read(&self, base: IoAddress, offset: IoAddress, data: &mut [u8]);
-
-    /// Write `data` to the guest physical address `base`, starting from `offset`.
-    fn write(&self, base: IoAddress, offset: IoAddress, data: &[u8]);
 }
