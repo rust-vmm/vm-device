@@ -84,8 +84,8 @@ impl<A: BusAddress, D> Bus<A, D> {
         Ok(())
     }
 
-    /// Unregister the device associated with `addr`.
-    pub fn unregister(&mut self, addr: A) -> Option<(BusRange<A>, D)> {
+    /// Deregister the device associated with `addr`.
+    pub fn deregister(&mut self, addr: A) -> Option<(BusRange<A>, D)> {
         let range = self.device(addr).map(|(range, _)| *range)?;
         self.devices.remove(&range).map(|device| (range, device))
     }
@@ -214,20 +214,20 @@ mod test {
                 Err(Error::DeviceNotFound)
             );
 
-            // Validate registration, and that `unregister` works for all addresses within a range.
+            // Validate registration, and that `deregister` works for all addresses within a range.
             for offset in 0..range2.size() {
                 let device2 = device + 1;
                 assert!(bus.register(range2, device2).is_ok());
                 assert_eq!(bus.devices.len(), 2);
 
                 let addr = range2.base().checked_add(offset).unwrap();
-                let (r, d) = bus.unregister(addr).unwrap();
+                let (r, d) = bus.deregister(addr).unwrap();
                 assert_eq!(bus.devices.len(), 1);
                 assert_eq!(r, range2);
                 assert_eq!(d, device2);
 
-                // A second unregister should fail.
-                assert!(bus.unregister(addr).is_none());
+                // A second deregister should fail.
+                assert!(bus.deregister(addr).is_none());
                 assert_eq!(bus.devices.len(), 1);
             }
 
