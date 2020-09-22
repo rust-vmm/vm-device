@@ -5,7 +5,7 @@
 //!
 //! [IoManager](struct.IoManager.html) is respondsible for managing
 //! all devices of virtual machine, registering IO resources callback,
-//! unregistering devices and helping VM IO exit handling.
+//! deregistering devices and helping VM IO exit handling.
 //！
 //！VMM would be responsible for getting device resource request, ask
 //! vm_allocator to allocate the resources, ask vm_device to register the
@@ -60,9 +60,9 @@ pub trait PioManager {
     /// Register the provided device with the specified range.
     fn register_pio(&mut self, range: PioRange, device: Self::D) -> Result<(), bus::Error>;
 
-    /// Unregister the device currently registered at `addr` together with the
+    /// Deregister the device currently registered at `addr` together with the
     /// associated range.
-    fn unregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)>;
+    fn deregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)>;
 }
 
 // This automatically provides a `PioManager` implementation for types that already implement
@@ -94,8 +94,8 @@ where
         self.bus_mut().register(range, device)
     }
 
-    fn unregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)> {
-        self.bus_mut().unregister(addr)
+    fn deregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)> {
+        self.bus_mut().deregister(addr)
     }
 }
 
@@ -117,9 +117,9 @@ pub trait MmioManager {
     /// Register the provided device with the specified range.
     fn register_mmio(&mut self, range: MmioRange, device: Self::D) -> Result<(), bus::Error>;
 
-    /// Unregister the device currently registered at `addr` together with the
+    /// Deregister the device currently registered at `addr` together with the
     /// associated range.
-    fn unregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)>;
+    fn deregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)>;
 }
 
 // This automatically provides a `MmioManager` implementation for types that already implement
@@ -151,8 +151,8 @@ where
         self.bus_mut().register(range, device)
     }
 
-    fn unregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)> {
-        self.bus_mut().unregister(addr)
+    fn deregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)> {
+        self.bus_mut().deregister(addr)
     }
 }
 
@@ -274,26 +274,26 @@ impl IoManager {
         self.register_pio_resources(device, resources)
     }
 
-    /// Unregister a device from `IoManager`, e.g. users specified removing.
+    /// Deregister a device from `IoManager`, e.g. users specified removing.
     /// VMM pre-fetches the resources e.g. dev.get_assigned_resources()
     /// VMM is responsible for freeing the resources. Returns the number
-    /// of unregistered devices.
+    /// of deregistered devices.
     ///
     /// # Arguments
     ///
     /// * `resources`: resources that this device owns, might include
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
-    pub fn unregister_resources(&mut self, resources: &[Resource]) -> usize {
+    pub fn deregister_resources(&mut self, resources: &[Resource]) -> usize {
         let mut count = 0;
         for res in resources.iter() {
             match *res {
                 Resource::PioAddressRange { base, .. } => {
-                    if self.unregister_pio(PioAddress(base)).is_some() {
+                    if self.deregister_pio(PioAddress(base)).is_some() {
                         count += 1;
                     }
                 }
                 Resource::MmioAddressRange { base, .. } => {
-                    if self.unregister_mmio(MmioAddress(base)).is_some() {
+                    if self.deregister_mmio(MmioAddress(base)).is_some() {
                         count += 1;
                     }
                 }
@@ -365,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn test_register_unregister_device_io() {
+    fn test_register_deregister_device_io() {
         let mut io_mgr = IoManager::new();
         let dummy = DummyDevice::new(0);
         let dum = Arc::new(dummy);
@@ -383,7 +383,7 @@ mod tests {
         assert!(io_mgr
             .register_mmio_resources(dum.clone(), &resource)
             .is_ok());
-        assert_eq!(io_mgr.unregister_resources(&resource), 1);
+        assert_eq!(io_mgr.deregister_resources(&resource), 1);
     }
 
     #[test]
