@@ -6,6 +6,7 @@
 use std::cmp::{Ord, Ordering, PartialOrd};
 
 pub mod device_manager;
+pub mod interrupt;
 pub mod resources;
 
 // IO Size.
