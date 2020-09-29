@@ -11,6 +11,7 @@ mod range;
 
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 use std::result::Result;
 
 use address::BusAddress;
@@ -30,6 +31,19 @@ pub enum Error {
     /// Invalid range provided (either zero-sized, or last address overflows).
     InvalidRange,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::DeviceNotFound => write!(f, "device not found"),
+            Error::DeviceOverlap => write!(f, "range overlaps with existing device"),
+            Error::InvalidAccessLength(len) => write!(f, "invalid access length ({})", len),
+            Error::InvalidRange => write!(f, "invalid range provided"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// A bus that's agnostic to the range address type and device type.
 pub struct Bus<A: BusAddress, D> {

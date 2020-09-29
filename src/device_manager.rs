@@ -11,6 +11,7 @@
 //! vm_allocator to allocate the resources, ask vm_device to register the
 //! devices IO ranges, and finally set resources to virtual device.
 
+use std::fmt::{Display, Formatter};
 use std::result::Result;
 use std::sync::Arc;
 
@@ -28,19 +29,18 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::DeviceOverlap => write!(
-                f,
-                "device_manager: device address conflicts with existing devices"
-            ),
-            Error::NoDevice => write!(f, "device_manager: no such device"),
+            Error::Bus(_) => write!(f, "device_manager: bus error"),
         }
     }
 }
 
-impl std::error::Error for Error {}
-
-/// Simplify the `Result` type.
-pub type Result<T> = result::Result<T, Error>;
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Bus(e) => Some(e),
+        }
+    }
+}
 
 /// Represents an object that provides PIO manager operations.
 pub trait PioManager {
@@ -308,8 +308,10 @@ impl IoManager {
 mod tests {
     use super::*;
 
-    use bus::PioAddressValue;
+    use std::error::Error;
     use std::sync::Mutex;
+
+    use bus::PioAddressValue;
 
     const PIO_ADDRESS_SIZE: u16 = 4;
     const PIO_ADDRESS_BASE: u16 = 0x40;
@@ -463,16 +465,9 @@ mod tests {
 
     #[test]
     fn test_error_code() {
-        let err = super::Error::DeviceOverlap;
+        let err = super::Error::Bus(bus::Error::DeviceOverlap);
 
-        assert!(err.source().is_none());
-        assert_eq!(
-            format!("{}", err),
-            "device_manager: device address conflicts with existing devices"
-        );
-
-        let err = super::Error::NoDevice;
-        assert!(err.source().is_none());
-        assert_eq!(format!("{:#?}", err), "NoDevice");
+        assert!(err.source().is_some());
+        assert_eq!(format!("{}", err), "device_manager: bus error");
     }
 }
