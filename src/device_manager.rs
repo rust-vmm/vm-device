@@ -160,33 +160,33 @@ where
 #[derive(Default)]
 pub struct IoManager {
     // Range mapping for VM exit pio operations.
-    pio_bus: PioBus<Arc<dyn DevicePio>>,
+    pio_bus: PioBus<Arc<dyn DevicePio + Send + Sync>>,
     // Range mapping for VM exit mmio operations.
-    mmio_bus: MmioBus<Arc<dyn DeviceMmio>>,
+    mmio_bus: MmioBus<Arc<dyn DeviceMmio + Send + Sync>>,
 }
 
 // Enables the automatic implementation of `PioManager` for `IoManager`.
 impl BusManager<PioAddress> for IoManager {
-    type D = Arc<dyn DevicePio>;
+    type D = Arc<dyn DevicePio + Send + Sync>;
 
-    fn bus(&self) -> &PioBus<Arc<dyn DevicePio>> {
+    fn bus(&self) -> &PioBus<Arc<dyn DevicePio + Send + Sync>> {
         &self.pio_bus
     }
 
-    fn bus_mut(&mut self) -> &mut PioBus<Arc<dyn DevicePio>> {
+    fn bus_mut(&mut self) -> &mut PioBus<Arc<dyn DevicePio + Send + Sync>> {
         &mut self.pio_bus
     }
 }
 
 // Enables the automatic implementation of `MmioManager` for `IoManager`.
 impl BusManager<MmioAddress> for IoManager {
-    type D = Arc<dyn DeviceMmio>;
+    type D = Arc<dyn DeviceMmio + Send + Sync>;
 
-    fn bus(&self) -> &MmioBus<Arc<dyn DeviceMmio>> {
+    fn bus(&self) -> &MmioBus<Arc<dyn DeviceMmio + Send + Sync>> {
         &self.mmio_bus
     }
 
-    fn bus_mut(&mut self) -> &mut MmioBus<Arc<dyn DeviceMmio>> {
+    fn bus_mut(&mut self) -> &mut MmioBus<Arc<dyn DeviceMmio + Send + Sync>> {
         &mut self.mmio_bus
     }
 }
@@ -207,7 +207,7 @@ impl IoManager {
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
     pub fn register_mmio_resources(
         &mut self,
-        device: Arc<dyn DeviceMmio>,
+        device: Arc<dyn DeviceMmio + Send + Sync>,
         resources: &[Resource],
     ) -> Result<(), Error> {
         // Register and mark device resources
@@ -237,7 +237,7 @@ impl IoManager {
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
     pub fn register_pio_resources(
         &mut self,
-        device: Arc<dyn DevicePio>,
+        device: Arc<dyn DevicePio + Send + Sync>,
         resources: &[Resource],
     ) -> Result<(), Error> {
         // Register and mark device resources
@@ -265,7 +265,7 @@ impl IoManager {
     /// * `device`: device instance object to be registered
     /// * `resources`: resources that this device owns, might include
     ///                port I/O and memory-mapped I/O ranges, irq number, etc.
-    pub fn register_resources<T: DeviceMmio + DevicePio + 'static>(
+    pub fn register_resources<T: DeviceMmio + DevicePio + 'static + Send + Sync>(
         &mut self,
         device: Arc<T>,
         resources: &[Resource],
