@@ -382,9 +382,7 @@ mod tests {
         resource.push(mmio);
         resource.push(irq);
 
-        assert!(io_mgr
-            .register_mmio_resources(dum.clone(), &resource)
-            .is_ok());
+        assert!(io_mgr.register_mmio_resources(dum, &resource).is_ok());
         assert_eq!(io_mgr.deregister_resources(&resource), 1);
     }
 
