@@ -5,6 +5,7 @@
 
 pub mod bus;
 pub mod device_manager;
+pub mod interrupt;
 pub mod resources;
 
 use std::ops::Deref;
