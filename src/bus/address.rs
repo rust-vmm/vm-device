@@ -158,7 +158,6 @@ mod tests {
         let value = A::V::from(5);
         let addr = addr_zero + value;
 
-        assert_eq!(addr, addr);
         assert!(addr_zero < addr);
         assert_eq!(addr - addr_zero, value);
 
