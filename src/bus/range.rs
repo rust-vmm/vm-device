@@ -148,7 +148,6 @@ mod tests {
 
             let range = BusRange::new(base, len).unwrap();
 
-            assert_eq!(range, range);
             assert_eq!(range.cmp(&range), range.partial_cmp(&range).unwrap());
             assert_eq!(range.cmp(&range), Ordering::Equal);
 
