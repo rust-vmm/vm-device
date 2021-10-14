@@ -6,7 +6,6 @@
 //! [IoManager](struct.IoManager.html) is respondsible for managing
 //! all devices of virtual machine, registering IO resources callback,
 //! deregistering devices and helping VM IO exit handling.
-//！
 //！VMM would be responsible for getting device resource request, ask
 //! vm_allocator to allocate the resources, ask vm_device to register the
 //! devices IO ranges, and finally set resources to virtual device.
