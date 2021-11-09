@@ -310,7 +310,7 @@ mod tests {
     use std::error::Error;
     use std::sync::Mutex;
 
-    use bus::PioAddressValue;
+    use bus::{MmioAddressOffset, PioAddressOffset};
 
     const PIO_ADDRESS_SIZE: u16 = 4;
     const PIO_ADDRESS_BASE: u16 = 0x40;
@@ -332,7 +332,7 @@ mod tests {
     }
 
     impl DevicePio for DummyDevice {
-        fn pio_read(&self, _base: PioAddress, _offset: PioAddressValue, data: &mut [u8]) {
+        fn pio_read(&self, _base: PioAddress, _offset: PioAddressOffset, data: &mut [u8]) {
             if data.len() > 4 {
                 return;
             }
@@ -342,14 +342,14 @@ mod tests {
             }
         }
 
-        fn pio_write(&self, _base: PioAddress, _offset: PioAddressValue, data: &[u8]) {
+        fn pio_write(&self, _base: PioAddress, _offset: PioAddressOffset, data: &[u8]) {
             let mut config = self.config.lock().expect("failed to acquire lock");
             *config = u32::from(data[0]) & 0xff;
         }
     }
 
     impl DeviceMmio for DummyDevice {
-        fn mmio_read(&self, _base: MmioAddress, _offset: u64, data: &mut [u8]) {
+        fn mmio_read(&self, _base: MmioAddress, _offset: MmioAddressOffset, data: &mut [u8]) {
             if data.len() > 4 {
                 return;
             }
@@ -359,7 +359,7 @@ mod tests {
             }
         }
 
-        fn mmio_write(&self, _base: MmioAddress, _offset: u64, data: &[u8]) {
+        fn mmio_write(&self, _base: MmioAddress, _offset: MmioAddressOffset, data: &[u8]) {
             let mut config = self.config.lock().expect("failed to acquire lock");
             *config = u32::from(data[0]) & 0xff;
         }
