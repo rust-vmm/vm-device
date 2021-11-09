@@ -16,7 +16,7 @@ use std::result::Result;
 
 use address::BusAddress;
 
-pub use address::{MmioAddress, PioAddress, PioAddressValue};
+pub use address::{MmioAddress, MmioAddressOffset, PioAddress, PioAddressOffset};
 pub use range::{BusRange, MmioRange, PioRange};
 
 /// Errors encountered during bus operations.

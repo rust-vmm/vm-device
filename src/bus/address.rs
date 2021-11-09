@@ -30,17 +30,19 @@ pub trait BusAddress:
     fn checked_add(&self, value: Self::V) -> Option<Self>;
 }
 
+/// Represents a MMIO address offset.
+pub type MmioAddressOffset = u64;
+
 /// Represents a MMIO address.
 #[derive(Clone, Copy, Debug)]
-pub struct MmioAddress(pub u64);
+pub struct MmioAddress(pub MmioAddressOffset);
 
-/// This type defines the underlying value type for PIO addresses, which might be different
-/// for different platforms.
-pub type PioAddressValue = u16;
+/// Represents a PIO address offset.
+pub type PioAddressOffset = u16;
 
 /// Represents a PIO address.
 #[derive(Clone, Copy, Debug)]
-pub struct PioAddress(pub PioAddressValue);
+pub struct PioAddress(pub PioAddressOffset);
 
 // Implementing `BusAddress` and its prerequisites for `MmioAddress`.
 
@@ -64,16 +66,16 @@ impl Ord for MmioAddress {
     }
 }
 
-impl Add<u64> for MmioAddress {
+impl Add<MmioAddressOffset> for MmioAddress {
     type Output = Self;
 
-    fn add(self, rhs: u64) -> Self::Output {
+    fn add(self, rhs: MmioAddressOffset) -> Self::Output {
         MmioAddress(self.0 + rhs)
     }
 }
 
 impl Sub for MmioAddress {
-    type Output = u64;
+    type Output = MmioAddressOffset;
 
     fn sub(self, rhs: Self) -> Self::Output {
         self.0 - rhs.0
@@ -81,7 +83,7 @@ impl Sub for MmioAddress {
 }
 
 impl BusAddress for MmioAddress {
-    type V = u64;
+    type V = MmioAddressOffset;
 
     fn value(&self) -> Self::V {
         self.0
@@ -114,16 +116,16 @@ impl Ord for PioAddress {
     }
 }
 
-impl Add<PioAddressValue> for PioAddress {
+impl Add<PioAddressOffset> for PioAddress {
     type Output = Self;
 
-    fn add(self, rhs: PioAddressValue) -> Self::Output {
+    fn add(self, rhs: PioAddressOffset) -> Self::Output {
         PioAddress(self.0 + rhs)
     }
 }
 
 impl Sub for PioAddress {
-    type Output = PioAddressValue;
+    type Output = PioAddressOffset;
 
     fn sub(self, rhs: Self) -> Self::Output {
         self.0 - rhs.0
@@ -131,7 +133,7 @@ impl Sub for PioAddress {
 }
 
 impl BusAddress for PioAddress {
-    type V = PioAddressValue;
+    type V = PioAddressOffset;
 
     fn value(&self) -> Self::V {
         self.0
