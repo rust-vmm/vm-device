@@ -66,6 +66,9 @@ impl<A: BusAddress, D> Bus<A, D> {
 
     /// Return the registered range and device associated with `addr`.
     pub fn device(&self, addr: A) -> Option<(&BusRange<A>, &D)> {
+        // The range is returned as an optimization because the caller
+        // might need both the device and its associated bus range.
+        // The same goes for the device_mut() method.
         self.devices
             .range(..=BusRange::unit(addr))
             .nth_back(0)
