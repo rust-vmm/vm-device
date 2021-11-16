@@ -124,18 +124,6 @@ impl<A: BusAddress, D> Bus<A, D> {
 pub type MmioBus<D> = Bus<MmioAddress, D>;
 pub type PioBus<D> = Bus<PioAddress, D>;
 
-/// Helper trait that can be implemented by types which hold one or more buses.
-pub trait BusManager<A: BusAddress> {
-    /// Type of the objects held by the bus.
-    type D;
-
-    /// Return a reference to the bus.
-    fn bus(&self) -> &Bus<A, Self::D>;
-
-    /// Return a mutable reference to the bus.
-    fn bus_mut(&mut self) -> &mut Bus<A, Self::D>;
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

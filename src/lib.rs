@@ -7,8 +7,7 @@ pub mod bus;
 pub mod device_manager;
 pub mod resources;
 
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use bus::{MmioAddress, MmioAddressOffset, PioAddress, PioAddressOffset};
 
@@ -35,28 +34,6 @@ pub trait MutDevicePio {
 pub trait MutDeviceMmio {
     fn mmio_read(&mut self, base: MmioAddress, offset: MmioAddressOffset, data: &mut [u8]);
     fn mmio_write(&mut self, base: MmioAddress, offset: MmioAddressOffset, data: &[u8]);
-}
-
-// Blanket implementations for Arc<T>.
-
-impl<T: DeviceMmio + ?Sized> DeviceMmio for Arc<T> {
-    fn mmio_read(&self, base: MmioAddress, offset: MmioAddressOffset, data: &mut [u8]) {
-        self.deref().mmio_read(base, offset, data);
-    }
-
-    fn mmio_write(&self, base: MmioAddress, offset: MmioAddressOffset, data: &[u8]) {
-        self.deref().mmio_write(base, offset, data);
-    }
-}
-
-impl<T: DevicePio + ?Sized> DevicePio for Arc<T> {
-    fn pio_read(&self, base: PioAddress, offset: PioAddressOffset, data: &mut [u8]) {
-        self.deref().pio_read(base, offset, data);
-    }
-
-    fn pio_write(&self, base: PioAddress, offset: PioAddressOffset, data: &[u8]) {
-        self.deref().pio_write(base, offset, data);
-    }
 }
 
 // Blanket implementations for Mutex<T>.

@@ -11,10 +11,11 @@
 //! devices IO ranges, and finally set resources to virtual device.
 
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 use std::result::Result;
 use std::sync::Arc;
 
-use crate::bus::{self, BusManager, MmioAddress, MmioBus, MmioRange, PioAddress, PioBus, PioRange};
+use crate::bus::{self, MmioAddress, MmioBus, MmioRange, PioAddress, PioBus, PioRange};
 use crate::resources::Resource;
 use crate::{DeviceMmio, DevicePio};
 
@@ -41,159 +42,108 @@ impl std::error::Error for Error {
     }
 }
 
-/// Represents an object that provides PIO manager operations.
-pub trait PioManager {
-    /// Type of the objects that can be registered with this `PioManager`.
-    type D: DevicePio;
-
-    /// Return a reference to the device registered at `addr`, together with the associated
-    /// range, if available.
-    fn pio_device(&self, addr: PioAddress) -> Option<(&PioRange, &Self::D)>;
-
-    /// Dispatch a read operation to the device registered at `addr`.
-    fn pio_read(&self, addr: PioAddress, data: &mut [u8]) -> Result<(), bus::Error>;
-
-    /// Dispatch a write operation to the device registered at `addr`.
-    fn pio_write(&self, addr: PioAddress, data: &[u8]) -> Result<(), bus::Error>;
-
-    /// Register the provided device with the specified range.
-    fn register_pio(&mut self, range: PioRange, device: Self::D) -> Result<(), bus::Error>;
-
-    /// Deregister the device currently registered at `addr` together with the
-    /// associated range.
-    fn deregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)>;
-}
-
-// This automatically provides a `PioManager` implementation for types that already implement
-// `BusManager<PioAddress>` if their inner associated type implements `DevicePio` as well.
-impl<T> PioManager for T
-where
-    T: BusManager<PioAddress>,
-    T::D: DevicePio,
-{
-    type D = <Self as BusManager<PioAddress>>::D;
-
-    fn pio_device(&self, addr: PioAddress) -> Option<(&PioRange, &Self::D)> {
-        self.bus().device(addr)
-    }
-
-    fn pio_read(&self, addr: PioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
-        self.bus()
-            .check_access(addr, data.len())
-            .map(|(range, device)| device.pio_read(range.base(), addr - range.base(), data))
-    }
-
-    fn pio_write(&self, addr: PioAddress, data: &[u8]) -> Result<(), bus::Error> {
-        self.bus()
-            .check_access(addr, data.len())
-            .map(|(range, device)| device.pio_write(range.base(), addr - range.base(), data))
-    }
-
-    fn register_pio(&mut self, range: PioRange, device: Self::D) -> Result<(), bus::Error> {
-        self.bus_mut().register(range, device)
-    }
-
-    fn deregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, Self::D)> {
-        self.bus_mut().deregister(addr)
-    }
-}
-
-/// Represents an object that provides MMIO manager operations.
-pub trait MmioManager {
-    /// Type of the objects that can be registered with this `MmioManager`.
-    type D: DeviceMmio;
-
-    /// Return a reference to the device registered at `addr`, together with the associated
-    /// range, if available.
-    fn mmio_device(&self, addr: MmioAddress) -> Option<(&MmioRange, &Self::D)>;
-
-    /// Dispatch a read operation to the device registered at `addr`.
-    fn mmio_read(&self, addr: MmioAddress, data: &mut [u8]) -> Result<(), bus::Error>;
-
-    /// Dispatch a write operation to the device registered at `addr`.
-    fn mmio_write(&self, addr: MmioAddress, data: &[u8]) -> Result<(), bus::Error>;
-
-    /// Register the provided device with the specified range.
-    fn register_mmio(&mut self, range: MmioRange, device: Self::D) -> Result<(), bus::Error>;
-
-    /// Deregister the device currently registered at `addr` together with the
-    /// associated range.
-    fn deregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)>;
-}
-
-// This automatically provides a `MmioManager` implementation for types that already implement
-// `BusManager<MmioAddress>` if their inner associated type implements `DeviceMmio` as well.
-impl<T> MmioManager for T
-where
-    T: BusManager<MmioAddress>,
-    T::D: DeviceMmio,
-{
-    type D = <Self as BusManager<MmioAddress>>::D;
-
-    fn mmio_device(&self, addr: MmioAddress) -> Option<(&MmioRange, &Self::D)> {
-        self.bus().device(addr)
-    }
-
-    fn mmio_read(&self, addr: MmioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
-        self.bus()
-            .check_access(addr, data.len())
-            .map(|(range, device)| device.mmio_read(range.base(), addr - range.base(), data))
-    }
-
-    fn mmio_write(&self, addr: MmioAddress, data: &[u8]) -> Result<(), bus::Error> {
-        self.bus()
-            .check_access(addr, data.len())
-            .map(|(range, device)| device.mmio_write(range.base(), addr - range.base(), data))
-    }
-
-    fn register_mmio(&mut self, range: MmioRange, device: Self::D) -> Result<(), bus::Error> {
-        self.bus_mut().register(range, device)
-    }
-
-    fn deregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, Self::D)> {
-        self.bus_mut().deregister(addr)
-    }
-}
+type ArcDevicePio = Arc<dyn DevicePio + Send + Sync>;
+type ArcDeviceMmio = Arc<dyn DeviceMmio + Send + Sync>;
 
 /// System IO manager serving for all devices management and VM exit handling.
 #[derive(Default)]
 pub struct IoManager {
     // Range mapping for VM exit pio operations.
-    pio_bus: PioBus<Arc<dyn DevicePio + Send + Sync>>,
+    pio_bus: PioBus<ArcDevicePio>,
     // Range mapping for VM exit mmio operations.
-    mmio_bus: MmioBus<Arc<dyn DeviceMmio + Send + Sync>>,
-}
-
-// Enables the automatic implementation of `PioManager` for `IoManager`.
-impl BusManager<PioAddress> for IoManager {
-    type D = Arc<dyn DevicePio + Send + Sync>;
-
-    fn bus(&self) -> &PioBus<Arc<dyn DevicePio + Send + Sync>> {
-        &self.pio_bus
-    }
-
-    fn bus_mut(&mut self) -> &mut PioBus<Arc<dyn DevicePio + Send + Sync>> {
-        &mut self.pio_bus
-    }
-}
-
-// Enables the automatic implementation of `MmioManager` for `IoManager`.
-impl BusManager<MmioAddress> for IoManager {
-    type D = Arc<dyn DeviceMmio + Send + Sync>;
-
-    fn bus(&self) -> &MmioBus<Arc<dyn DeviceMmio + Send + Sync>> {
-        &self.mmio_bus
-    }
-
-    fn bus_mut(&mut self) -> &mut MmioBus<Arc<dyn DeviceMmio + Send + Sync>> {
-        &mut self.mmio_bus
-    }
+    mmio_bus: MmioBus<ArcDeviceMmio>,
 }
 
 impl IoManager {
     /// Create an default IoManager with empty IO member.
     pub fn new() -> Self {
         IoManager::default()
+    }
+
+    /// Return a reference to the device registered at `addr`, together with the associated
+    /// range, if available.
+    pub fn pio_device(&self, addr: PioAddress) -> Option<(&PioRange, &ArcDevicePio)> {
+        self.pio_bus.device(addr)
+    }
+
+    /// Dispatch a read operation to the device registered at `addr`.
+    pub fn pio_read(&self, addr: PioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
+        self.pio_bus
+            .check_access(addr, data.len())
+            .map(|(range, device)| {
+                device
+                    .deref()
+                    .pio_read(range.base(), addr - range.base(), data)
+            })
+    }
+
+    /// Dispatch a write operation to the device registered at `addr`.
+    pub fn pio_write(&self, addr: PioAddress, data: &[u8]) -> Result<(), bus::Error> {
+        self.pio_bus
+            .check_access(addr, data.len())
+            .map(|(range, device)| {
+                device
+                    .deref()
+                    .pio_write(range.base(), addr - range.base(), data)
+            })
+    }
+
+    /// Register the provided device with the specified range.
+    pub fn register_pio(
+        &mut self,
+        range: PioRange,
+        device: ArcDevicePio,
+    ) -> Result<(), bus::Error> {
+        self.pio_bus.register(range, device)
+    }
+
+    /// Deregister the device currently registered at `addr` together with the
+    /// associated range.
+    pub fn deregister_pio(&mut self, addr: PioAddress) -> Option<(PioRange, ArcDevicePio)> {
+        self.pio_bus.deregister(addr)
+    }
+
+    /// Return a reference to the device registered at `addr`, together with the associated
+    /// range, if available.
+    pub fn mmio_device(&self, addr: MmioAddress) -> Option<(&MmioRange, &ArcDeviceMmio)> {
+        self.mmio_bus.device(addr)
+    }
+
+    /// Dispatch a read operation to the device registered at `addr`.
+    pub fn mmio_read(&self, addr: MmioAddress, data: &mut [u8]) -> Result<(), bus::Error> {
+        self.mmio_bus
+            .check_access(addr, data.len())
+            .map(|(range, device)| {
+                device
+                    .deref()
+                    .mmio_read(range.base(), addr - range.base(), data)
+            })
+    }
+
+    /// Dispatch a write operation to the device registered at `addr`.
+    pub fn mmio_write(&self, addr: MmioAddress, data: &[u8]) -> Result<(), bus::Error> {
+        self.mmio_bus
+            .check_access(addr, data.len())
+            .map(|(range, device)| {
+                device
+                    .deref()
+                    .mmio_write(range.base(), addr - range.base(), data)
+            })
+    }
+
+    /// Register the provided device with the specified range.
+    pub fn register_mmio(
+        &mut self,
+        range: MmioRange,
+        device: ArcDeviceMmio,
+    ) -> Result<(), bus::Error> {
+        self.mmio_bus.register(range, device)
+    }
+
+    /// Deregister the device currently registered at `addr` together with the
+    /// associated range.
+    pub fn deregister_mmio(&mut self, addr: MmioAddress) -> Option<(MmioRange, ArcDeviceMmio)> {
+        self.mmio_bus.deregister(addr)
     }
 
     /// Register a new MMIO device with its allocated resources.
