@@ -92,10 +92,6 @@ impl<A: BusAddress, D> Bus<A, D> {
             }
         }
 
-        if self.devices.contains_key(&range) {
-            return Err(Error::DeviceOverlap);
-        }
-
         self.devices.insert(range, device);
 
         Ok(())
@@ -189,6 +185,9 @@ mod test {
             }
         }
 
+        // Detect double registration with the same range.
+        assert_eq!(bus.register(range, device), Err(Error::DeviceOverlap));
+
         // We detect overlaps even if it's another range associated with the same device (we don't
         // implicitly merge ranges). `check_access` fails if the specified range does not fully
         // fit within a region associated with a particular device.
@@ -260,5 +259,18 @@ mod test {
                 Err(Error::DeviceNotFound)
             );
         }
+
+        // Ensure that bus::check_access() fails when the len argument
+        // cannot be safely converted to PioAddressOffset which is u16.
+        let pio_base = PioAddress(10);
+        let pio_len = 10;
+        let pio_range = PioRange::new(pio_base, pio_len).unwrap();
+        let mut pio_bus = Bus::new();
+        let pio_device = 1u8;
+        pio_bus.register(pio_range, pio_device).unwrap();
+        assert_eq!(
+            pio_bus.check_access(pio_base, usize::MAX),
+            Err(Error::InvalidAccessLength(usize::MAX))
+        );
     }
 }

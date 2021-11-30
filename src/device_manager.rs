@@ -377,12 +377,20 @@ mod tests {
             size: MMIO_ADDRESS_SIZE,
         };
         let irq = Resource::LegacyIrq(LEGACY_IRQ);
+        let pio = Resource::PioAddressRange {
+            base: PIO_ADDRESS_BASE,
+            size: PIO_ADDRESS_SIZE,
+        };
 
         resource.push(mmio);
         resource.push(irq);
+        resource.push(pio);
 
-        assert!(io_mgr.register_mmio_resources(dum, &resource).is_ok());
-        assert_eq!(io_mgr.deregister_resources(&resource), 1);
+        assert!(io_mgr
+            .register_mmio_resources(dum.clone(), &resource)
+            .is_ok());
+        assert!(io_mgr.register_pio_resources(dum, &resource).is_ok());
+        assert_eq!(io_mgr.deregister_resources(&resource), 2);
     }
 
     #[test]
