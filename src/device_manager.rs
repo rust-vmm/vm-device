@@ -3,12 +3,116 @@
 
 //! System level device management.
 //!
-//! [IoManager](struct.IoManager.html) is respondsible for managing
+//! [`IoManager`] is responsible for managing
 //! all devices of virtual machine, registering IO resources callback,
 //! deregistering devices and helping VM IO exit handling.
-//！VMM would be responsible for getting device resource request, ask
-//! vm_allocator to allocate the resources, ask vm_device to register the
-//! devices IO ranges, and finally set resources to virtual device.
+//! It defines two buses, one for PIO and one for MMIO, and provides default
+//! implementations of [`PioManager`] and [`MmioManager`].
+//!
+//! The VMM must first allocate unique resources (such as bus ranges), and then
+//! call into the vm-device interface to register the devices with their
+//! corresponding resources.
+//!
+//! # Examples
+//!
+//! Registering a new device can be done using the register methods of [`PioManager`]
+//! and [`MmioManager`] with an appropriate bus range
+//! ([`PioRange`](../bus/type.PioRange.html) or [`MmioRange`](../bus/type.MmioRange.html)).
+//! ```
+//! # use std::sync::Arc;
+//! # use vm_device::bus::{PioAddress, PioAddressOffset, PioRange};
+//! # use vm_device::bus::{MmioAddress, MmioAddressOffset, MmioRange};
+//! # use vm_device::device_manager::{IoManager, PioManager, MmioManager};
+//! # use vm_device::{DevicePio, DeviceMmio};
+//! struct NoopDevice {}
+//!
+//! impl DevicePio for NoopDevice {
+//!     fn pio_read(&self, base: PioAddress, offset: PioAddressOffset, data: &mut [u8]) {}
+//!     fn pio_write(&self, base: PioAddress, offset: PioAddressOffset, data: &[u8]) {}
+//! }
+//!
+//! impl DeviceMmio for NoopDevice {
+//!     fn mmio_read(&self, base: MmioAddress, offset: MmioAddressOffset, data: &mut [u8]) {}
+//!     fn mmio_write(&self, base: MmioAddress, offset: MmioAddressOffset, data: &[u8]) {}
+//! }
+//!
+//! // IoManager implements both PioManager and MmioManager.
+//! let mut manager = IoManager::new();
+//!
+//! // Register the device on the PIO bus.
+//! let pio_range = PioRange::new(PioAddress(0), 10).unwrap();
+//! manager
+//!     .register_pio(pio_range, Arc::new(NoopDevice {}))
+//!     .unwrap();
+//!
+//! // Register the device on the MMIO bus.
+//! let mmio_range = MmioRange::new(MmioAddress(0), 10).unwrap();
+//! manager
+//!     .register_mmio(mmio_range, Arc::new(NoopDevice {}))
+//!     .unwrap();
+//!
+//! // Dispatch I/O on the PIO bus.
+//! manager.pio_write(PioAddress(0), &vec![b'o', b'k']).unwrap();
+//!
+//! // Dispatch I/O on the MMIO bus.
+//! manager
+//!     .mmio_write(MmioAddress(0), &vec![b'o', b'k'])
+//!     .unwrap();
+//! ```
+//!
+//! An alternative way would be to use [`resources`](../resources/index.html) and the
+//! resources registration methods of [`IoManager`]:
+//! * [`register_pio_resources`](struct.IoManager.html#method.register_pio_resources)
+//! * [`register_mmio_resources`](struct.IoManager.html#method.register_mmio_resources)
+//! * or generic [`register_resources`](struct.IoManager.html#method.register_resources)
+//! ```
+//! # use std::sync::Arc;
+//! # use vm_device::bus::{PioAddress, PioAddressOffset, PioRange};
+//! # use vm_device::bus::{MmioAddress, MmioAddressOffset, MmioRange};
+//! # use vm_device::device_manager::{IoManager, PioManager, MmioManager};
+//! # use vm_device::{DevicePio, DeviceMmio};
+//! # use vm_device::resources::Resource;
+//! # struct NoopDevice {}
+//! #
+//! # impl DevicePio for NoopDevice {
+//! #    fn pio_read(&self, base: PioAddress, offset: PioAddressOffset, data: &mut [u8]) {}
+//! #    fn pio_write(&self, base: PioAddress, offset: PioAddressOffset, data: &[u8]) {}
+//! # }
+//! #
+//! # impl DeviceMmio for NoopDevice {
+//! #    fn mmio_read(&self, base: MmioAddress, offset: MmioAddressOffset, data: &mut [u8]) {}
+//! #    fn mmio_write(&self, base: MmioAddress, offset: MmioAddressOffset, data: &[u8]) {}
+//! # }
+//! // Use the same NoopDevice defined above.
+//!
+//! let mut manager = IoManager::new();
+//!
+//! // Define a PIO address range resource.
+//! let pio = Resource::PioAddressRange {
+//!    base: 0,
+//!    size: 10,
+//! };
+//!
+//! // Define a MMIO address range resource.
+//! let mmio = Resource::MmioAddressRange {
+//!    base: 0,
+//!    size: 10,
+//! };
+//!
+//! // Register the PIO resource.
+//! manager
+//!     .register_pio_resources(Arc::new(NoopDevice {}), &vec![pio])
+//!     .unwrap();
+//!
+//! // Register the MMIO resource.
+//! manager
+//!     .register_mmio_resources(Arc::new(NoopDevice {}), &vec![mmio])
+//!     .unwrap();
+//!
+//! // Dispatching I/O is the same.
+//! manager.pio_write(PioAddress(0), &vec![b'o', b'k']).unwrap();
+//! manager.mmio_write(MmioAddress(0), &vec![b'o', b'k']).unwrap();
+//! ```
 
 use std::fmt::{Display, Formatter};
 use std::result::Result;
@@ -18,7 +122,7 @@ use crate::bus::{self, BusManager, MmioAddress, MmioBus, MmioRange, PioAddress, 
 use crate::resources::Resource;
 use crate::{DeviceMmio, DevicePio};
 
-/// Error type for `IoManager` usage.
+/// Error type for [IoManager] usage.
 #[derive(Debug)]
 pub enum Error {
     /// Error during bus operation.

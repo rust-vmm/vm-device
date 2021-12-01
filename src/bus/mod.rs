@@ -1,7 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-//! Provides abstractions for modelling a bus, which is seen here as a mapping between
+//! Provides abstractions for modelling an I/O bus.
+//!
+//! A bus is seen here as a mapping between
 //! disjoint intervals (ranges) from an address space and objects (devices) associated with them.
 //! A single device can be registered with multiple ranges, but no two ranges can overlap,
 //! regardless with their device associations.
@@ -117,7 +119,9 @@ impl<A: BusAddress, D> Bus<A, D> {
     }
 }
 
+/// Represents an MMIO bus.
 pub type MmioBus<D> = Bus<MmioAddress, D>;
+/// Represents a PIO bus.
 pub type PioBus<D> = Bus<PioAddress, D>;
 
 /// Helper trait that can be implemented by types which hold one or more buses.
