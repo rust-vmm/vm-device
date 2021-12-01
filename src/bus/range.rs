@@ -41,6 +41,7 @@ impl<A: BusAddress> BusRange<A> {
         self.base
     }
 
+    /// Return the size of the range.
     pub fn size(&self) -> A::V {
         self.size
     }
@@ -81,8 +82,9 @@ impl<A: BusAddress> Ord for BusRange<A> {
     }
 }
 
-// Helper type aliases.
+/// Represents an MMIO bus range.
 pub type MmioRange = BusRange<MmioAddress>;
+/// Represents a PIO bus range.
 pub type PioRange = BusRange<PioAddress>;
 
 #[cfg(test)]
