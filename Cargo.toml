@@ -1,7 +1,7 @@
 [package]
 name = "vm-device"
 version = "0.1.0"
-authors = ["Samuel Ortiz <sameo@linux.intel.com>"]
+authors = ["Samuel Ortiz <sameo@linux.intel.com>", "Liu Jiang <gerry@linux.alibaba.com>", "rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"
 repository = "https://github.com/rust-vmm/vm-device"
 license = "Apache-2.0"
