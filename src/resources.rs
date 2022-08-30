@@ -107,8 +107,8 @@ impl ResourceConstraint {
     }
 }
 
-/// Type of Message Singaled Interrupt
-#[derive(Copy, Clone, PartialEq)]
+/// Type of Message Signaled Interrupt
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum MsiIrqType {
     /// PCI MSI IRQ numbers.
     PciMsi,

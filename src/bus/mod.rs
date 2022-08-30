@@ -22,7 +22,7 @@ pub use address::{MmioAddress, MmioAddressOffset, PioAddress, PioAddressOffset};
 pub use range::{BusRange, MmioRange, PioRange};
 
 /// Errors encountered during bus operations.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     /// No device is associated with the specified address or range.
     DeviceNotFound,
